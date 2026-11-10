@@ -241,8 +241,25 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         ImageSource &source = images[key];
         source.w = w;
         source.h = h;
-        source.rgba = std::make_shared<const std::vector<uint8_t>>(data.begin(), data.end());
+        const auto copy = std::make_shared<const std::vector<uint8_t>>(data.begin(), data.end());
+        source.pixels = {copy->data(), copy->size()};
+        source.owner = copy;
         ++source.version;
+      }
+      continue;
+    }
+    if (op == OpImageShared) {
+      const uint64_t key = in.read<uint64_t>();
+      const uint64_t token = in.read<uint64_t>();
+      if (!in.ok()) continue;
+      if (const auto staged = staged_images.find(token); staged != staged_images.end()) {
+        ImageSource &source = images[key];
+        source.w = staged->second.w;
+        source.h = staged->second.h;
+        source.pixels = staged->second.pixels;
+        source.owner = std::move(staged->second.owner);
+        ++source.version;
+        staged_images.erase(staged);
       }
       continue;
     }
@@ -1597,7 +1614,7 @@ float cubic(float t) {
   return t <= 1 ? (1.5f * t - 2.5f) * t * t + 1 : t < 2 ? ((-0.5f * t + 2.5f) * t - 4) * t + 2 : 0;
 }
 
-void resample(const std::vector<uint8_t> &src, uint32_t sw, uint32_t sh, CropRect crop, int dw, int dh, uint8_t sampling, std::vector<uint8_t> &out) {
+void resample(std::span<const uint8_t> src, uint32_t sw, uint32_t sh, CropRect crop, int dw, int dh, uint8_t sampling, std::vector<uint8_t> &out) {
   out.assign(static_cast<size_t>(dw) * static_cast<size_t>(dh) * 4, 0);
   const float step_x = (crop.x1 - crop.x0) / static_cast<float>(dw), step_y = (crop.y1 - crop.y0) / static_cast<float>(dh);
   const bool box = step_x > 1.f || step_y > 1.f;
@@ -1687,7 +1704,8 @@ void resample(const std::vector<uint8_t> &src, uint32_t sw, uint32_t sh, CropRec
 struct Engine::Resampler {
   struct Job {
     uint64_t cache_key = 0, source = 0, version = 0;
-    std::shared_ptr<const std::vector<uint8_t>> rgba;
+    std::shared_ptr<const void> owner;
+    std::span<const uint8_t> rgba;
     uint32_t sw = 0, sh = 0;
     CropRect crop;
     int dw = 0, dh = 0;
@@ -1744,8 +1762,9 @@ struct Engine::Resampler {
         job = std::move(todo.front());
         todo.pop_front();
       }
-      resample(*job.rgba, job.sw, job.sh, job.crop, job.dw, job.dh, job.sampling, job.pixels);
-      job.rgba.reset();
+      resample(job.rgba, job.sw, job.sh, job.crop, job.dw, job.dh, job.sampling, job.pixels);
+      job.owner.reset();
+      job.rgba = {};
       premultiply(job.pixels);
       {
         std::lock_guard guard(lock);
@@ -1838,12 +1857,12 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     if (!region.in_flight) {
       if (!resampler_) resampler_ = std::make_unique<Resampler>(on_async);
       region.in_flight = true;
-      resampler_->push({cache_key, key, img.version, img.rgba, img.w, img.h, crop, dw, dh, sampling, {}});
+      resampler_->push({cache_key, key, img.version, img.owner, img.pixels, img.w, img.h, crop, dw, dh, sampling, {}});
     }
     return region;
   }
   std::vector<uint8_t> pixels;
-  resample(*img.rgba, img.w, img.h, crop, dw, dh, sampling, pixels);
+  resample(img.pixels, img.w, img.h, crop, dw, dh, sampling, pixels);
   store_region(region, key, img.version, dw, dh, pixels);
   return region;
 }

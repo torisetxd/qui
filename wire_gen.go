@@ -69,6 +69,7 @@ const (
 	opDrag           = 63
 	opFixed          = 64
 	opNoScrollbar    = 65
+	opImageShared    = 66
 )
 
 const (

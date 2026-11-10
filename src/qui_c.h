@@ -66,6 +66,11 @@ const uint8_t *qui_frame_begin(qui_app *app, size_t *len);
 /* Consumes one wire-format frame. The engine does not retain `wire`. */
 void qui_frame_end(qui_app *app, const uint8_t *wire, size_t len);
 
+/* Lends the engine `len` bytes of straight RGBA for an ImageShared op naming
+ * `token`, without copying them. `release(ctx)` runs once the engine and its
+ * worker thread are done with the bytes, from whichever thread lets go last. */
+void qui_stage_image(qui_app *app, uint64_t token, uint32_t w, uint32_t h, const uint8_t *rgba, size_t len, void *ctx, void (*release)(void *));
+
 #ifdef __cplusplus
 }
 #endif

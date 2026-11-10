@@ -77,6 +77,7 @@ enum Op : uint8_t {
   OpDrag = 63,
   OpFixed = 64,
   OpNoScrollbar = 65,
+  OpImageShared = 66,
 };
 
 enum Kind : uint8_t {

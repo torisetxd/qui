@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -458,6 +459,23 @@ class Ui {
     pending_images_.insert(pending_images_.end(), reinterpret_cast<const uint8_t *>(&w), reinterpret_cast<const uint8_t *>(&w) + 2);
     pending_images_.insert(pending_images_.end(), reinterpret_cast<const uint8_t *>(&h), reinterpret_cast<const uint8_t *>(&h) + 2);
     pending_images_.insert(pending_images_.end(), rgba, rgba + bytes);
+  }
+
+  // Like load_image, but shares the pixels instead of copying them: `owner`
+  // keeps the `width * height * 4` bytes at `rgba` alive until qui is done with
+  // them, and qui scales straight from that buffer on its worker thread. Decode
+  // off the UI thread, then hand the result over here, and the UI thread never
+  // touches the pixels.
+  void load_image_shared(std::string_view key, int width, int height, std::shared_ptr<const void> owner, const uint8_t *rgba) {
+    if (width <= 0 || height <= 0 || width > 65535 || height > 65535 || !owner || !rgba) return;
+    const uint64_t id = mix(0, key.data(), key.size());
+    loaded_images_.insert(id);
+    const uint64_t token = ++shared_token_;
+    auto *held = new std::shared_ptr<const void>(std::move(owner));
+    qui_stage_image(app_, token, static_cast<uint32_t>(width), static_cast<uint32_t>(height), rgba, static_cast<size_t>(width) * static_cast<size_t>(height) * 4, held, [](void *ctx) { delete static_cast<std::shared_ptr<const void> *>(ctx); });
+    pending_images_.push_back(wire::OpImageShared);
+    pending_images_.insert(pending_images_.end(), reinterpret_cast<const uint8_t *>(&id), reinterpret_cast<const uint8_t *>(&id) + 8);
+    pending_images_.insert(pending_images_.end(), reinterpret_cast<const uint8_t *>(&token), reinterpret_cast<const uint8_t *>(&token) + 8);
   }
 
   // Forgets a loaded image and its pixels.
@@ -1283,6 +1301,7 @@ class Ui {
   uint8_t theme_ = 0;
   size_t image_at_ = 0;
   std::vector<uint8_t> pending_images_;
+  uint64_t shared_token_ = 0;
   std::unordered_set<uint64_t> loaded_images_;
   std::unordered_set<uint64_t> sent_svgs_;
   std::vector<std::pair<uint8_t, Color>> palette_;

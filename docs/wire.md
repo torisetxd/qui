@@ -15,6 +15,7 @@ The stream starts with `Frame` and then holds nodes in pre-order. A node is
 | --- | --- |
 | `Frame` | `version:u8 theme:u8` |
 | `ImageData` | `key:u64 w:u16 h:u16` then `w*h*4` bytes of straight RGBA. Sent once per key, directly after `Palette`, and the engine keeps it |
+| `ImageShared` | `key:u64 token:u64`, directly after `Palette` like `ImageData`. Same as `ImageData`, but the pixels were lent to the engine out of band under `token` (`qui_stage_image`) and are shared rather than carried in the stream |
 | `Img` | `key:u64` the image an `Image` node shows, or the SVG an `Icon` node shows |
 | `SvgData` | `key:u64` then `str` of SVG text. Sent once per key, directly after `Palette` like `ImageData`, and the engine keeps it. `Icon` nodes draw it fitted to their box in their `Fg` (`Ink` when unset), using only the shapes' coverage |
 | `Fit` | `u8`: `Cover` 0, `Contain` 1, `Stretch` 2 |

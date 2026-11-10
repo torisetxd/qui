@@ -1890,4 +1890,10 @@ const uint8_t *qui_frame_begin(qui_app *app, size_t *len) {
 
 void qui_frame_end(qui_app *app, const uint8_t *wire, size_t len) { app->end_frame(wire, len); }
 
+void qui_stage_image(qui_app *app, uint64_t token, uint32_t w, uint32_t h, const uint8_t *rgba, size_t len, void *ctx, void (*release)(void *)) {
+  std::shared_ptr<const void> owner(ctx, release);
+  if (!app || !rgba || len < static_cast<size_t>(w) * h * 4) return;
+  app->engine.stage_image(token, w, h, {rgba, static_cast<size_t>(w) * h * 4}, std::move(owner));
+}
+
 }  // extern "C"

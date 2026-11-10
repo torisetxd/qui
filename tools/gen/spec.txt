@@ -120,6 +120,7 @@ op Glide 62
 op Drag 63
 op Fixed 64
 op NoScrollbar 65
+op ImageShared 66
 
 gesture PanX 1
 gesture PanY 2

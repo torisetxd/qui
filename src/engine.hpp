@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -325,11 +326,25 @@ class Engine {
   };
   std::vector<SpanRef> spans;
   std::vector<TextStyleSpan> span_scratch;
+  // Straight RGBA the engine reads but may not own: `owner` keeps the bytes
+  // alive, so a decoder's buffer can be shared with the resampler thread
+  // instead of copied.
   struct ImageSource {
     uint32_t w = 0, h = 0;
     uint64_t version = 0;
-    std::shared_ptr<const std::vector<uint8_t>> rgba;
+    std::shared_ptr<const void> owner;
+    std::span<const uint8_t> pixels;
   };
+  struct StagedImage {
+    uint32_t w = 0, h = 0;
+    std::shared_ptr<const void> owner;
+    std::span<const uint8_t> pixels;
+  };
+  std::unordered_map<uint64_t, StagedImage> staged_images;
+  // Holds shared pixels under `token` until an ImageShared op names it.
+  void stage_image(uint64_t token, uint32_t w, uint32_t h, std::span<const uint8_t> pixels, std::shared_ptr<const void> owner) {
+    staged_images[token] = {w, h, std::move(owner), pixels};
+  }
   struct ImageRegion {
     AtlasRegion region;
     int w = 0, h = 0;
