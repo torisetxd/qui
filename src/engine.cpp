@@ -1862,7 +1862,7 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     crop = {(sw - view_w) / 2, (sh - view_h) / 2, (sw + view_w) / 2, (sh + view_h) / 2};
   }
 
-  constexpr uint64_t kSyncPixels = 64 * 64;
+  constexpr uint64_t kSyncPixels = 32 * 32;
   ImageRegion &region = image_regions[cache_key];
   region.last_used = frame_number;
   if (async_images && static_cast<uint64_t>(img.w) * img.h > kSyncPixels) {
