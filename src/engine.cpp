@@ -22,6 +22,54 @@
 
 namespace qui {
 
+namespace {
+
+// Dropping the last reference to a multi-megabyte image takes tens of
+// milliseconds on a phone (its pages go back to the kernel), so the engine
+// lets a background thread do it instead of stalling a frame.
+class Reaper {
+ public:
+  static Reaper &get() {
+    static Reaper *instance = new Reaper;
+    return *instance;
+  }
+
+  void give(std::shared_ptr<const void> &&owner) {
+    if (!owner) return;
+    {
+      std::lock_guard guard(lock_);
+      items_.push_back(std::move(owner));
+    }
+    wake_.notify_one();
+  }
+
+ private:
+  Reaper() : worker_([this] { run(); }) { worker_.detach(); }
+
+  void run() {
+#if defined(__linux__)
+    setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
+#endif
+    for (;;) {
+      std::vector<std::shared_ptr<const void>> batch;
+      {
+        std::unique_lock guard(lock_);
+        wake_.wait(guard, [&] { return !items_.empty(); });
+        batch.swap(items_);
+      }
+      batch.clear();
+    }
+  }
+
+  std::mutex lock_;
+  std::condition_variable wake_;
+  std::vector<std::shared_ptr<const void>> items_;
+  std::thread worker_;
+};
+
+}  // namespace
+
+
 using namespace wire;
 
 IRect intersect(IRect a, IRect b) {
@@ -249,7 +297,7 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         source.h = h;
         const auto copy = std::make_shared<const std::vector<uint8_t>>(data.begin(), data.end());
         source.pixels = {copy->data(), copy->size()};
-        source.owner = copy;
+        Reaper::get().give(std::exchange(source.owner, copy));
         ++source.version;
       }
       continue;
@@ -263,7 +311,7 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         source.w = staged->second.w;
         source.h = staged->second.h;
         source.pixels = staged->second.pixels;
-        source.owner = std::move(staged->second.owner);
+        Reaper::get().give(std::exchange(source.owner, std::move(staged->second.owner)));
         ++source.version;
         staged_images.erase(staged);
       }
@@ -278,7 +326,10 @@ void Engine::decode(const uint8_t *wire, size_t len) {
     }
     if (op == OpImageFree) {
       const uint64_t key = in.read<uint64_t>();
-      images.erase(key);
+      if (const auto found = images.find(key); found != images.end()) {
+        Reaper::get().give(std::move(found->second.owner));
+        images.erase(found);
+      }
       std::erase_if(image_regions, [&](const auto &kv) {
         if (kv.second.source != key) return false;
         if (kv.second.ok) fonts.release_rgba(kv.second.region, kv.second.alloc_w, kv.second.alloc_h);
