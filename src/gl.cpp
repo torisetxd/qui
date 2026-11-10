@@ -25,6 +25,7 @@ namespace {
   X(BindVertexArray, BINDVERTEXARRAY)                             \
   X(BlendFunc, BLENDFUNC)                                         \
   X(BufferData, BUFFERDATA)                                       \
+  X(BufferSubData, BUFFERSUBDATA)                                 \
   X(Clear, CLEAR)                                                 \
   X(ClearColor, CLEARCOLOR)                                       \
   X(CompileShader, COMPILESHADER)                                 \
@@ -281,7 +282,30 @@ class GlBackend final : public Backend {
       gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(upload.page_width), static_cast<GLsizei>(upload.page_height), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     }
     gl_.BindTexture(GL_TEXTURE_2D, texture);
-    gl_.TexSubImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(upload.destination_x), static_cast<GLint>(upload.destination_y), static_cast<GLsizei>(upload.width), static_cast<GLsizei>(upload.height), GL_RGBA, GL_UNSIGNED_BYTE, upload.pixels.data());
+    const auto x = static_cast<GLint>(upload.destination_x), y = static_cast<GLint>(upload.destination_y);
+    const auto w = static_cast<GLsizei>(upload.width), h = static_cast<GLsizei>(upload.height);
+    // Handing the driver a few megabytes of client memory makes it copy them
+    // into fresh staging pages on every call, which is slow on phones. A ring
+    // of buffers that stay allocated skips that; small glyph uploads don't
+    // need it.
+    constexpr size_t kBufferedBytes = 256 * 1024;
+    const size_t bytes = upload.pixels.size();
+    if (bytes < kBufferedBytes) {
+      gl_.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, upload.pixels.data());
+      return;
+    }
+    const size_t slot = staging_next_;
+    staging_next_ = (staging_next_ + 1) % kStagingBuffers;
+    if (!staging_[slot]) gl_.GenBuffers(1, &staging_[slot]);
+    gl_.BindBuffer(GL_PIXEL_UNPACK_BUFFER, staging_[slot]);
+    if (staging_capacity_[slot] < bytes) {
+      constexpr size_t kRound = 1024 * 1024;
+      staging_capacity_[slot] = (bytes + kRound - 1) / kRound * kRound;
+      gl_.BufferData(GL_PIXEL_UNPACK_BUFFER, static_cast<GLsizeiptr>(staging_capacity_[slot]), nullptr, GL_STREAM_DRAW);
+    }
+    gl_.BufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), upload.pixels.data());
+    gl_.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    gl_.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
   }
 
   void draw(const FrameData &frame, IRect, double time) override {
@@ -475,6 +499,10 @@ class GlBackend final : public Backend {
   Gl gl_;
   bool offscreen_;
   std::string version_;
+  static constexpr size_t kStagingBuffers = 3;
+  GLuint staging_[kStagingBuffers] = {0, 0, 0};
+  size_t staging_capacity_[kStagingBuffers] = {0, 0, 0};
+  size_t staging_next_ = 0;
   GLuint program_ = 0, vao_ = 0, vbo_ = 0, fbo_ = 0, color_ = 0;
   GLint u_fb_ = -1, u_atlas_ = -1, u_clip_ = -1, u_clip_radius_ = -1;
   int width_ = 0, height_ = 0;

@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <mutex>
 
 namespace qui {
 
@@ -452,7 +453,54 @@ void premultiply(std::vector<uint8_t> &pixels) {
   }
 }
 
+namespace {
+
+std::mutex pixel_pool_lock;
+std::vector<std::vector<uint8_t>> pixel_pool;
+constexpr size_t kPoolMinBytes = 128 * 1024;
+constexpr size_t kPoolMaxBuffers = 4;
+
+}  // namespace
+
+std::vector<uint8_t> take_pixel_buffer(size_t bytes) {
+  std::lock_guard guard(pixel_pool_lock);
+  size_t best = pixel_pool.size();
+  for (size_t i = 0; i < pixel_pool.size(); ++i) {
+    if (pixel_pool[i].capacity() < bytes) continue;
+    if (best == pixel_pool.size() || pixel_pool[i].capacity() < pixel_pool[best].capacity()) best = i;
+  }
+  if (best == pixel_pool.size()) return {};
+  std::vector<uint8_t> out = std::move(pixel_pool[best]);
+  pixel_pool.erase(pixel_pool.begin() + static_cast<std::ptrdiff_t>(best));
+  return out;
+}
+
+void give_pixel_buffer(std::vector<uint8_t> &&buffer) {
+  if (buffer.capacity() < kPoolMinBytes) return;
+  std::lock_guard guard(pixel_pool_lock);
+  if (pixel_pool.size() >= kPoolMaxBuffers) {
+    // Keep the largest buffers: they are the ones worth not reallocating.
+    auto smallest = std::min_element(pixel_pool.begin(), pixel_pool.end(), [](const auto &a, const auto &b) { return a.capacity() < b.capacity(); });
+    if (smallest->capacity() >= buffer.capacity()) return;
+    *smallest = std::move(buffer);
+    return;
+  }
+  pixel_pool.push_back(std::move(buffer));
+}
+
+void FontManager::clear_pending_uploads() {
+  for (AtlasUpload &upload : pending_uploads_) give_pixel_buffer(std::move(upload.pixels));
+  pending_uploads_.clear();
+}
+
 void FontManager::write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height, const std::vector<uint8_t> &pixels, bool premultiplied) {
+  if (pixels.size() != static_cast<size_t>(width) * height * 4) return;
+  std::vector<uint8_t> copy = take_pixel_buffer(pixels.size());
+  copy.assign(pixels.begin(), pixels.end());
+  write_rgba(region, width, height, std::move(copy), premultiplied);
+}
+
+void FontManager::write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height, std::vector<uint8_t> &&pixels, bool premultiplied) {
   if (pixels.size() != static_cast<size_t>(width) * height * 4) return;
   AtlasUpload upload;
   upload.atlas_page = region.page;
@@ -462,7 +510,7 @@ void FontManager::write_rgba(const AtlasRegion &region, uint32_t width, uint32_t
   upload.destination_y = static_cast<uint32_t>(std::lround(region.v0 * static_cast<float>(upload.page_height)));
   upload.width = width;
   upload.height = height;
-  upload.pixels = pixels;
+  upload.pixels = std::move(pixels);
   if (!premultiplied) premultiply(upload.pixels);
   pending_uploads_.push_back(std::move(upload));
 }

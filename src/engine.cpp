@@ -1772,6 +1772,7 @@ struct Engine::Resampler {
         job = std::move(todo.front());
         todo.pop_front();
       }
+      job.pixels = take_pixel_buffer(static_cast<size_t>(job.dw) * static_cast<size_t>(job.dh) * 4);
       resample(job.rgba, job.sw, job.sh, job.crop, job.dw, job.dh, job.sampling, job.pixels);
       job.owner.reset();
       job.rgba = {};
@@ -1801,11 +1802,11 @@ void Engine::drain_resamples() {
     const auto source = images.find(job.source);
     if (source == images.end() || job.version > source->second.version) continue;
     if (region.ok && region.source == job.source && region.version >= job.version) continue;
-    store_region(region, job.source, job.version, job.dw, job.dh, job.pixels, true);
+    store_region(region, job.source, job.version, job.dw, job.dh, std::move(job.pixels), true);
   }
 }
 
-void Engine::store_region(ImageRegion &region, uint64_t key, uint64_t version, int dw, int dh, const std::vector<uint8_t> &pixels, bool premultiplied) {
+void Engine::store_region(ImageRegion &region, uint64_t key, uint64_t version, int dw, int dh, std::vector<uint8_t> &&pixels, bool premultiplied) {
   if (region.ok && (region.source != key || region.w != dw || region.h != dh)) {
     fonts.release_rgba(region.region, region.alloc_w, region.alloc_h);
     region.ok = false;
@@ -1819,7 +1820,8 @@ void Engine::store_region(ImageRegion &region, uint64_t key, uint64_t version, i
   region.written = frame_number;
   region.w = dw;
   region.h = dh;
-  if (region.ok) fonts.write_rgba(region.region, static_cast<uint32_t>(dw), static_cast<uint32_t>(dh), pixels, premultiplied);
+  if (region.ok) fonts.write_rgba(region.region, static_cast<uint32_t>(dw), static_cast<uint32_t>(dh), std::move(pixels), premultiplied);
+  else give_pixel_buffer(std::move(pixels));
 }
 
 // Pixels rewritten in place keep the same instance, so the frame diff alone
@@ -1873,10 +1875,10 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     return region;
   }
   ++stat_sync_resamples;
-  std::vector<uint8_t> pixels;
+  std::vector<uint8_t> pixels = take_pixel_buffer(static_cast<size_t>(dw) * static_cast<size_t>(dh) * 4);
   const auto resample_began = std::chrono::steady_clock::now();
   resample(img.pixels, img.w, img.h, crop, dw, dh, sampling, pixels);
-  store_region(region, key, img.version, dw, dh, pixels);
+  store_region(region, key, img.version, dw, dh, std::move(pixels));
   sync_resample_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - resample_began).count();
   return region;
 }

@@ -18,6 +18,12 @@ namespace qui {
 // Straight RGBA to premultiplied, in place.
 void premultiply(std::vector<uint8_t> &pixels);
 
+// Large pixel buffers cost tens of milliseconds to fault in on a phone, so
+// scaled images and their uploads pass the same few buffers around instead of
+// allocating one per frame. Safe to use from any thread.
+std::vector<uint8_t> take_pixel_buffer(size_t bytes);
+void give_pixel_buffer(std::vector<uint8_t> &&buffer);
+
 
 using FontInstanceId = uint32_t;
 
@@ -106,13 +112,15 @@ class FontManager {
                      uint32_t &alloc_width, uint32_t &alloc_height);
   void write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height,
                   const std::vector<uint8_t> &pixels, bool premultiplied = false);
+  void write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height,
+                  std::vector<uint8_t> &&pixels, bool premultiplied);
   void release_rgba(const AtlasRegion &region, uint32_t alloc_width,
                     uint32_t alloc_height);
 
   const std::vector<AtlasUpload> &pending_uploads() const {
     return pending_uploads_;
   }
-  void clear_pending_uploads() { pending_uploads_.clear(); }
+  void clear_pending_uploads();
 
   FT_Library ft_library() const { return library_; }
 
