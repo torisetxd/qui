@@ -348,7 +348,7 @@ class Engine {
   std::unique_ptr<Resampler> resampler_;
   IRect image_damage_{};
   void drain_resamples();
-  void store_region(ImageRegion &region, uint64_t key, uint64_t version, int dw, int dh, const std::vector<uint8_t> &pixels);
+  void store_region(ImageRegion &region, uint64_t key, uint64_t version, int dw, int dh, const std::vector<uint8_t> &pixels, bool premultiplied = false);
   void damage_image(const ImageRegion &region, const Instance &instance);
   const ImageRegion &image_region(const Node &node, int box_w, int box_h);
   const ImageRegion &image_region_for(uint64_t key, uint8_t fit, int box_w, int box_h);

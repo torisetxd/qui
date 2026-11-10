@@ -1722,9 +1722,16 @@ struct Engine::Resampler {
     wake.notify_one();
   }
 
-  std::vector<Job> take() {
+  // Hands back finished jobs up to a byte budget (always at least one), so
+  // a screen of images landing together spreads its uploads over frames.
+  std::vector<Job> take(size_t budget, bool &more) {
     std::lock_guard guard(lock);
-    return std::exchange(done, {});
+    size_t used = 0, count = 0;
+    while (count < done.size() && (count == 0 || used + done[count].pixels.size() <= budget)) used += done[count++].pixels.size();
+    std::vector<Job> out(std::make_move_iterator(done.begin()), std::make_move_iterator(done.begin() + static_cast<std::ptrdiff_t>(count)));
+    done.erase(done.begin(), done.begin() + static_cast<std::ptrdiff_t>(count));
+    more = !done.empty();
+    return out;
   }
 
   void run() {
@@ -1739,6 +1746,7 @@ struct Engine::Resampler {
       }
       resample(*job.rgba, job.sw, job.sh, job.crop, job.dw, job.dh, job.sampling, job.pixels);
       job.rgba.reset();
+      premultiply(job.pixels);
       {
         std::lock_guard guard(lock);
         done.push_back(std::move(job));
@@ -1752,7 +1760,11 @@ Engine::~Engine() = default;
 
 void Engine::drain_resamples() {
   if (!resampler_) return;
-  for (Resampler::Job &job : resampler_->take()) {
+  constexpr size_t kUploadBudget = 1u << 20;
+  bool more = false;
+  std::vector<Resampler::Job> jobs = resampler_->take(kUploadBudget, more);
+  if (more) wants_another_frame = true;
+  for (Resampler::Job &job : jobs) {
     const auto found = image_regions.find(job.cache_key);
     if (found == image_regions.end()) continue;
     ImageRegion &region = found->second;
@@ -1760,11 +1772,11 @@ void Engine::drain_resamples() {
     const auto source = images.find(job.source);
     if (source == images.end() || job.version > source->second.version) continue;
     if (region.ok && region.source == job.source && region.version >= job.version) continue;
-    store_region(region, job.source, job.version, job.dw, job.dh, job.pixels);
+    store_region(region, job.source, job.version, job.dw, job.dh, job.pixels, true);
   }
 }
 
-void Engine::store_region(ImageRegion &region, uint64_t key, uint64_t version, int dw, int dh, const std::vector<uint8_t> &pixels) {
+void Engine::store_region(ImageRegion &region, uint64_t key, uint64_t version, int dw, int dh, const std::vector<uint8_t> &pixels, bool premultiplied) {
   if (region.ok && (region.source != key || region.w != dw || region.h != dh)) {
     fonts.release_rgba(region.region, region.alloc_w, region.alloc_h);
     region.ok = false;
@@ -1778,7 +1790,7 @@ void Engine::store_region(ImageRegion &region, uint64_t key, uint64_t version, i
   region.written = frame_number;
   region.w = dw;
   region.h = dh;
-  if (region.ok) fonts.write_rgba(region.region, static_cast<uint32_t>(dw), static_cast<uint32_t>(dh), pixels);
+  if (region.ok) fonts.write_rgba(region.region, static_cast<uint32_t>(dw), static_cast<uint32_t>(dh), pixels, premultiplied);
 }
 
 // Pixels rewritten in place keep the same instance, so the frame diff alone
@@ -1819,7 +1831,7 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     crop = {(sw - view_w) / 2, (sh - view_h) / 2, (sw + view_w) / 2, (sh + view_h) / 2};
   }
 
-  constexpr uint64_t kSyncPixels = 160 * 160;
+  constexpr uint64_t kSyncPixels = 64 * 64;
   ImageRegion &region = image_regions[cache_key];
   region.last_used = frame_number;
   if (async_images && static_cast<uint64_t>(img.w) * img.h > kSyncPixels) {

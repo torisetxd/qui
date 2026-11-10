@@ -14,6 +14,10 @@ using FT_Face = FT_FaceRec_ *;
 
 namespace qui {
 
+// Straight RGBA to premultiplied, in place.
+void premultiply(std::vector<uint8_t> &pixels);
+
+
 using FontInstanceId = uint32_t;
 
 struct FontMetrics {
@@ -100,7 +104,7 @@ class FontManager {
   bool allocate_rgba(uint32_t width, uint32_t height, AtlasRegion &region,
                      uint32_t &alloc_width, uint32_t &alloc_height);
   void write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height,
-                  const std::vector<uint8_t> &pixels);
+                  const std::vector<uint8_t> &pixels, bool premultiplied = false);
   void release_rgba(const AtlasRegion &region, uint32_t alloc_width,
                     uint32_t alloc_height);
 

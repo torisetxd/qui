@@ -389,15 +389,7 @@ bool FontManager::upload_rgba(uint32_t width, uint32_t height,
   upload.page_height = pages_[page].height;
   upload.pixels = pixels;
   // The color-bitmap shader expects premultiplied atlas samples.
-  for (size_t at = 0; at < upload.pixels.size(); at += 4) {
-    const uint32_t alpha = upload.pixels[at + 3];
-    upload.pixels[at] =
-        static_cast<uint8_t>((upload.pixels[at] * alpha + 127) / 255);
-    upload.pixels[at + 1] =
-        static_cast<uint8_t>((upload.pixels[at + 1] * alpha + 127) / 255);
-    upload.pixels[at + 2] =
-        static_cast<uint8_t>((upload.pixels[at + 2] * alpha + 127) / 255);
-  }
+  premultiply(upload.pixels);
   pending_uploads_.push_back(std::move(upload));
   region.page = page;
   const float page_w = static_cast<float>(pages_[page].width);
@@ -449,7 +441,17 @@ void FontManager::release_rgba(const AtlasRegion &region, uint32_t alloc_width, 
   free_rgba_.push_back({region, alloc_width, alloc_height});
 }
 
-void FontManager::write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height, const std::vector<uint8_t> &pixels) {
+void premultiply(std::vector<uint8_t> &pixels) {
+  for (size_t at = 0; at + 3 < pixels.size(); at += 4) {
+    const uint32_t alpha = pixels[at + 3];
+    if (alpha == 255) continue;
+    pixels[at] = static_cast<uint8_t>((pixels[at] * alpha + 127) / 255);
+    pixels[at + 1] = static_cast<uint8_t>((pixels[at + 1] * alpha + 127) / 255);
+    pixels[at + 2] = static_cast<uint8_t>((pixels[at + 2] * alpha + 127) / 255);
+  }
+}
+
+void FontManager::write_rgba(const AtlasRegion &region, uint32_t width, uint32_t height, const std::vector<uint8_t> &pixels, bool premultiplied) {
   if (pixels.size() != static_cast<size_t>(width) * height * 4) return;
   AtlasUpload upload;
   upload.atlas_page = region.page;
@@ -460,12 +462,7 @@ void FontManager::write_rgba(const AtlasRegion &region, uint32_t width, uint32_t
   upload.width = width;
   upload.height = height;
   upload.pixels = pixels;
-  for (size_t at = 0; at < upload.pixels.size(); at += 4) {
-    const uint32_t alpha = upload.pixels[at + 3];
-    upload.pixels[at] = static_cast<uint8_t>((upload.pixels[at] * alpha + 127) / 255);
-    upload.pixels[at + 1] = static_cast<uint8_t>((upload.pixels[at + 1] * alpha + 127) / 255);
-    upload.pixels[at + 2] = static_cast<uint8_t>((upload.pixels[at + 2] * alpha + 127) / 255);
-  }
+  if (!premultiplied) premultiply(upload.pixels);
   pending_uploads_.push_back(std::move(upload));
 }
 
