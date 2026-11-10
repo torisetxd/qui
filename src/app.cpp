@@ -1707,6 +1707,7 @@ struct qui_app {
     engine.ui = {shown_hovered(), shown_pressed(), focused, focus_ring, headless || caret_on, scrollbar_dragged ? scrollbar_dragged : scrollbar_hovered};
     engine.paint();
     const double t_paint = now();
+    const double raster_ms = engine.fonts.take_raster_ms();
     ease_next = engine.easing ? clock() + (cpu ? kFlingStep : 0.004) : 0;
     if (engine.selection.empty()) engine.selection_cache.clear();
     else engine.selection_cache = engine.selected_text();
@@ -1742,7 +1743,7 @@ struct qui_app {
       return v ? std::atof(v) / 1000.0 : 0.05;
     }();
     if (const double t_end = now(); (!headless || slow_s < 0.05) && t_end - began > slow_s)
-      std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, len / 1024, engine.previous.instances.size());
+      std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; glyph raster %.0f ms, image scale %.0f ms; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, raster_ms, engine.sync_resample_ms, len / 1024, engine.previous.instances.size());
 #if defined(__ANDROID__)
     if (const uint32_t c = engine.previous.clear; !headless) {
       const float luma = 0.2126f * static_cast<float>((c >> 24) & 0xff) + 0.7152f * static_cast<float>((c >> 16) & 0xff) + 0.0722f * static_cast<float>((c >> 8) & 0xff);

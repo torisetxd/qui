@@ -378,6 +378,8 @@ class Engine {
   float dpr = 1;
   uint64_t frame_number = 0;
   bool wants_another_frame = false;
+  // Milliseconds this frame spent scaling images on the paint thread.
+  double sync_resample_ms = 0;
   // The clock for eases, in seconds; `easing` is set by paint while one runs.
   double time = 0;
   bool easing = false;
