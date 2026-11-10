@@ -1742,6 +1742,36 @@ struct qui_app {
       const char *v = std::getenv("QUI_SLOW_MS");
       return v ? std::atof(v) / 1000.0 : 0.05;
     }();
+    {
+      struct Window {
+        double since = 0, decode = 0, layout = 0, paint = 0, upload = 0, draw = 0, present = 0;
+        size_t frames = 0, uploads = 0, upload_kib = 0, instances = 0;
+        uint64_t async0 = 0, sync0 = 0;
+      };
+      static Window win;
+      const double t_now = now();
+      if (win.since == 0) win.since = t_now;
+      ++win.frames;
+      win.decode += t_decode - began;
+      win.layout += t_layout - t_decode;
+      win.paint += t_paint - t_layout;
+      win.upload += t_upload - t_paint;
+      win.draw += t_draw - t_upload;
+      win.present += t_now - t_draw;
+      win.uploads += upload_count;
+      win.upload_kib += upload_bytes / 1024;
+      win.instances += engine.previous.instances.size();
+      if (t_now - win.since >= 2.0) {
+        if (!headless && win.frames >= 10) {
+          const double n = static_cast<double>(win.frames);
+          std::fprintf(stderr, "qui: %zu frames in %.1f s (%.0f fps), avg ms: decode %.1f layout %.1f paint %.1f upload %.1f draw %.1f present %.1f; per frame %.1f uploads, %.0f KiB, %.0f instances; image scaling +%llu async +%llu inline\n", win.frames, t_now - win.since, n / (t_now - win.since), win.decode * 1000 / n, win.layout * 1000 / n, win.paint * 1000 / n, win.upload * 1000 / n, win.draw * 1000 / n, win.present * 1000 / n, static_cast<double>(win.uploads) / n, static_cast<double>(win.upload_kib) / n, static_cast<double>(win.instances) / n, static_cast<unsigned long long>(engine.stat_async_resamples - win.async0), static_cast<unsigned long long>(engine.stat_sync_resamples - win.sync0));
+        }
+        win = Window{};
+        win.since = t_now;
+        win.async0 = engine.stat_async_resamples;
+        win.sync0 = engine.stat_sync_resamples;
+      }
+    }
     if (const double t_end = now(); (!headless || slow_s < 0.05) && t_end - began > slow_s)
       std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; glyph raster %.0f ms, image scale %.0f ms; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, raster_ms, engine.sync_resample_ms, len / 1024, engine.previous.instances.size());
 #if defined(__ANDROID__)

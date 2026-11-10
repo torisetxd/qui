@@ -1867,10 +1867,12 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     if (!region.in_flight) {
       if (!resampler_) resampler_ = std::make_unique<Resampler>(on_async);
       region.in_flight = true;
+      ++stat_async_resamples;
       resampler_->push({cache_key, key, img.version, img.owner, img.pixels, img.w, img.h, crop, dw, dh, sampling, {}});
     }
     return region;
   }
+  ++stat_sync_resamples;
   std::vector<uint8_t> pixels;
   const auto resample_began = std::chrono::steady_clock::now();
   resample(img.pixels, img.w, img.h, crop, dw, dh, sampling, pixels);

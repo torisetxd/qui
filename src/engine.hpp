@@ -380,6 +380,8 @@ class Engine {
   bool wants_another_frame = false;
   // Milliseconds this frame spent scaling images on the paint thread.
   double sync_resample_ms = 0;
+  // Counters for frame diagnostics: scaling jobs queued and images scaled inline.
+  uint64_t stat_async_resamples = 0, stat_sync_resamples = 0;
   // The clock for eases, in seconds; `easing` is set by paint while one runs.
   double time = 0;
   bool easing = false;
