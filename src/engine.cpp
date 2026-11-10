@@ -1,5 +1,10 @@
 //go:build cgo
 
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 #include "engine.hpp"
 #include "system_fonts.hpp"
 
@@ -1753,6 +1758,9 @@ struct Engine::Resampler {
   }
 
   void run() {
+#if defined(__linux__)
+    setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
+#endif
     for (;;) {
       Job job;
       {

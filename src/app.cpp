@@ -1737,7 +1737,11 @@ struct qui_app {
     const double t_draw = now();
     engine_ms = static_cast<float>((t_draw - began) * 1000);
     if (!damage.empty() && !headless) present(gl ? full : damage);
-    if (const double t_end = now(); !headless && t_end - began > 0.05)
+    static const double slow_s = [] {
+      const char *v = std::getenv("QUI_SLOW_MS");
+      return v ? std::atof(v) / 1000.0 : 0.05;
+    }();
+    if (const double t_end = now(); (!headless || slow_s < 0.05) && t_end - began > slow_s)
       std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, len / 1024, engine.previous.instances.size());
 #if defined(__ANDROID__)
     if (const uint32_t c = engine.previous.clear; !headless) {
