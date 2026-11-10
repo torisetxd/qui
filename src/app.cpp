@@ -1687,12 +1687,14 @@ struct qui_app {
     if (!wire_path.empty()) last_wire.assign(wire, wire + len);
     if (window && !headless) read_size();
     engine.decode(wire, len);
+    const double t_decode = now();
     engine.insets[0] = inset_top;
     engine.insets[1] = inset_right;
     engine.insets[2] = inset_bottom;
     engine.insets[3] = inset_left;
     engine.time = clock();
     engine.layout(logical_w, logical_h, dpr);
+    const double t_layout = now();
     if (engine.menu_open != menu_open) {
       menu_open = engine.menu_open;
       if (menu_open) menu_return = focused;
@@ -1704,6 +1706,7 @@ struct qui_app {
     }
     engine.ui = {shown_hovered(), shown_pressed(), focused, focus_ring, headless || caret_on, scrollbar_dragged ? scrollbar_dragged : scrollbar_hovered};
     engine.paint();
+    const double t_paint = now();
     ease_next = engine.easing ? clock() + (cpu ? kFlingStep : 0.004) : 0;
     if (engine.selection.empty()) engine.selection_cache.clear();
     else engine.selection_cache = engine.selected_text();
@@ -1713,8 +1716,14 @@ struct qui_app {
     // stop, so a stop and start within one frame would leave it hidden.
     if (std::exchange(stop_text_pending, false) && !focused_input() && sdl_ready && window) SDL_StopTextInput(window);
     update_ime_area();
-    for (const AtlasUpload &upload : engine.fonts.pending_uploads()) backend->upload(upload);
+    size_t upload_bytes = 0;
+    const size_t upload_count = engine.fonts.pending_uploads().size();
+    for (const AtlasUpload &upload : engine.fonts.pending_uploads()) {
+      upload_bytes += upload.pixels.size();
+      backend->upload(upload);
+    }
     engine.fonts.clear_pending_uploads();
+    const double t_upload = now();
 
     backend->resize(pixel_w, pixel_h);
     IRect damage = engine.swap_and_damage();
@@ -1725,8 +1734,11 @@ struct qui_app {
     }
     if (!damage.empty()) backend->draw(engine.previous, damage, headless ? 1.0 : now());
     if (backend->take_compiled()) dirty = true;
-    engine_ms = static_cast<float>((now() - began) * 1000);
+    const double t_draw = now();
+    engine_ms = static_cast<float>((t_draw - began) * 1000);
     if (!damage.empty() && !headless) present(gl ? full : damage);
+    if (const double t_end = now(); !headless && t_end - began > 0.05)
+      std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, len / 1024, engine.previous.instances.size());
 #if defined(__ANDROID__)
     if (const uint32_t c = engine.previous.clear; !headless) {
       const float luma = 0.2126f * static_cast<float>((c >> 24) & 0xff) + 0.7152f * static_cast<float>((c >> 16) & 0xff) + 0.0722f * static_cast<float>((c >> 8) & 0xff);
