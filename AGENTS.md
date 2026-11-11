@@ -65,11 +65,11 @@ Rules that are easy to break:
 
 ## Verifying
 
-Setting `QUI_SHOT`, `QUI_TREE` or `QUI_WIRE` runs an app offscreen and exits. `SKILL.md` lists every variable, including scripted input through `QUI_DRIVE`.
+Setting `QUI_SHOT`, `QUI_TREE`, `QUI_WIRE` or `QUI_DRIVE` runs an app offscreen and exits. `SKILL.md` lists every variable. `QUI_TREE=-` prints an outline of what is on screen with each node's `@key`, and `QUI_DRIVE` steps can aim at those keys or at text instead of coordinates; the drive code is in `src/drive.cpp` and `drive_step` in `src/app.cpp`.
 
 Native:
 
-- Offscreen runs use the CPU renderer, which skips shaders. Set `QUI_BACKEND=gl` to see them, and check both renderers for rendering changes.
+- Offscreen runs use the CPU renderer, which skips shaders. Set `QUI_BACKEND=gl` to see them, and check both renderers for rendering changes. Offscreen GL uses SDL's `offscreen` video driver, so it needs no display; set `SDL_VIDEO_DRIVER` to override.
 - Offscreen runs 4 frames by default, with `u_time` frozen at 1.0. Frames run faster than real time, so use `QUI_FRAMES=1500` to let animations settle.
 - To patch a timestep or stub code for one run, use `go build -overlay overlay.json` with `{"Replace":{"/abs/original.go":"/abs/patched.go"}}` instead of editing source. `GOFLAGS=-overlay=overlay.json` also works through `qui build`.
 - `QUI_SHOT` PNGs are uncompressed, about 5 MB at 1440x900, so don't commit them. README images are 1440x900 from `QUI_BACKEND=gl`, converted with `magick a.png -alpha off -quality 88 -define webp:method=6 a.webp`.

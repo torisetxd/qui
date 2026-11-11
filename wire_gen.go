@@ -2,7 +2,7 @@
 
 package qui
 
-const wireVersion = 28
+const wireVersion = 29
 
 const (
 	opEnd            = 0
@@ -72,6 +72,7 @@ const (
 	opFixed          = 64
 	opNoScrollbar    = 65
 	opImageShared    = 66
+	opKey            = 67
 )
 
 const (

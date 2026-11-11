@@ -1,5 +1,6 @@
 //go:build cgo
 
+#include "drive.hpp"
 #include "engine.hpp"
 #include "qui_c.h"
 
@@ -9,6 +10,7 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <deque>
 #include <filesystem>
@@ -21,6 +23,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 #if defined(__ANDROID__)
@@ -213,6 +216,185 @@ void capture_stdio() {
 }
 #endif
 
+struct DrivePoint {
+  bool selector = false;
+  Selector sel;
+  float x = 0, y = 0;
+};
+
+struct DriveStep {
+  std::string text, verb, rest;
+  size_t number = 0;
+  std::vector<DrivePoint> points;
+  std::vector<float> numbers;
+  Selector sel;
+  bool has_sel = false;
+};
+
+constexpr const char *kDriveSteps = "click rclick dblclick down up move wheel drag tap touch touchmove touchup longpress swipe pinch dragover drop key type ime wait gone find shot tree";
+
+// Each step's arguments: P a point (x,y or a selector), N a number, S a
+// selector, W a frame count or a selector, R the rest of the step as text.
+const char *step_args(std::string_view verb) {
+  static const std::pair<std::string_view, const char *> table[] = {
+      {"click", "P"}, {"rclick", "P"}, {"dblclick", "P"}, {"down", "P"}, {"up", "P"}, {"move", "P"},
+      {"tap", "P"}, {"touch", "P"}, {"touchmove", "P"}, {"touchup", "P"}, {"longpress", "P"}, {"dragover", "P"},
+      {"wheel", "PN"}, {"drag", "PP"}, {"swipe", "PPN"}, {"pinch", "PNN"}, {"drop", "PR"},
+      {"key", "R"}, {"type", "R"}, {"ime", "R"}, {"shot", "R"}, {"tree", "R"},
+      {"wait", "W"}, {"gone", "S"}, {"find", "S"}};
+  for (const auto &[name, args] : table)
+    if (name == verb) return args;
+  return nullptr;
+}
+
+bool parse_key(std::string_view rest, uint32_t &key, uint32_t &mods) {
+  mods = 0;
+  for (size_t plus = rest.find('+'); plus != std::string_view::npos && rest.size() > 1; plus = rest.find('+')) {
+    const std::string_view modifier = rest.substr(0, plus);
+    if (modifier == "shift") mods |= ModShift;
+    else if (modifier == "ctrl") mods |= ModCtrl;
+    else if (modifier == "alt") mods |= ModAlt;
+    else if (modifier == "meta") mods |= ModMeta;
+    else return false;
+    rest.remove_prefix(plus + 1);
+  }
+  key = key_from_name(rest);
+  return key != 0;
+}
+
+void skip_spaces(std::string_view &in) {
+  while (!in.empty() && std::isspace(static_cast<unsigned char>(in.front()))) in.remove_prefix(1);
+}
+
+bool parse_float(std::string_view &in, float &out) {
+  skip_spaces(in);
+  const std::string text(in.substr(0, in.find(',')));
+  char *end = nullptr;
+  out = std::strtof(text.c_str(), &end);
+  if (end == text.c_str()) return false;
+  in.remove_prefix(static_cast<size_t>(end - text.c_str()));
+  return true;
+}
+
+bool parse_step(DriveStep &step, std::string &error) {
+  const size_t colon = step.text.find(':');
+  step.verb = step.text.substr(0, colon);
+  const char *args = step_args(step.verb);
+  if (!args) {
+    error = "unknown step";
+    return false;
+  }
+  std::string_view in = colon == std::string::npos ? std::string_view() : std::string_view(step.text).substr(colon + 1);
+  for (const char *arg = args; *arg; ++arg) {
+    if (arg != args) {
+      skip_spaces(in);
+      if (in.empty() || in.front() != ',') {
+        error = "expected ',' and another argument";
+        return false;
+      }
+      in.remove_prefix(1);
+    }
+    switch (*arg) {
+      case 'R':
+        step.rest = std::string(in);
+        in = {};
+        break;
+      case 'N': {
+        float value = 0;
+        if (!parse_float(in, value)) {
+          error = "expected a number";
+          return false;
+        }
+        step.numbers.push_back(value);
+        break;
+      }
+      case 'S':
+        if (!parse_selector(in, step.sel, error)) return false;
+        step.has_sel = true;
+        break;
+      case 'W':
+        skip_spaces(in);
+        if (in.empty()) break;
+        if (std::isdigit(static_cast<unsigned char>(in.front()))) {
+          float frames = 0;
+          parse_float(in, frames);
+          step.numbers.push_back(frames);
+        } else {
+          if (!parse_selector(in, step.sel, error)) return false;
+          step.has_sel = true;
+        }
+        break;
+      case 'P': {
+        DrivePoint point;
+        skip_spaces(in);
+        if (!in.empty() && (in.front() == '@' || in.front() == '"' || in.front() == '~')) {
+          if (!parse_selector(in, point.sel, error)) return false;
+          point.selector = true;
+        } else {
+          bool ok = parse_float(in, point.x);
+          skip_spaces(in);
+          ok = ok && !in.empty() && in.front() == ',';
+          if (ok) in.remove_prefix(1);
+          if (!ok || !parse_float(in, point.y)) {
+            error = "expected x,y or a selector";
+            return false;
+          }
+        }
+        step.points.push_back(std::move(point));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  skip_spaces(in);
+  if (!in.empty()) {
+    error = "unexpected '" + std::string(in) + "'";
+    return false;
+  }
+  uint32_t key = 0, mods = 0;
+  if (step.verb == "key" && !parse_key(step.rest, key, mods)) {
+    error = "unknown key; use a character or backspace tab enter escape space delete left right up down home end pageup pagedown, after shift+ ctrl+ alt+ meta+";
+    return false;
+  }
+  if ((step.verb == "shot" || step.verb == "tree") && step.rest.empty()) {
+    error = "needs a path, or - for stdout";
+    return false;
+  }
+  return true;
+}
+
+// Splits QUI_DRIVE at ';', except inside the quotes of a selector. `type`,
+// `ime` and `key` take their text literally up to the next ';'.
+std::vector<std::string> split_steps(std::string_view all) {
+  std::vector<std::string> out;
+  while (!all.empty()) {
+    skip_spaces(all);
+    const bool literal = all.rfind("type:", 0) == 0 || all.rfind("ime:", 0) == 0 || all.rfind("key:", 0) == 0;
+    bool quoted = false;
+    size_t end = 0;
+    for (; end < all.size(); ++end) {
+      const char c = all[end];
+      if (literal) {
+        if (c == ';') break;
+      } else if (quoted && c == '\\') {
+        ++end;
+      } else if (c == '"') {
+        quoted = !quoted;
+      } else if (c == ';' && !quoted) {
+        break;
+      }
+    }
+    end = std::min(end, all.size());
+    std::string_view step = all.substr(0, end);
+    if (!literal)
+      while (!step.empty() && std::isspace(static_cast<unsigned char>(step.back()))) step.remove_suffix(1);
+    if (!step.empty()) out.emplace_back(step);
+    all.remove_prefix(std::min(end + 1, all.size()));
+  }
+  return out;
+}
+
 }  // namespace
 
 struct qui_app {
@@ -235,8 +417,11 @@ struct qui_app {
   std::string shot_path, tree_path, wire_path;
   std::vector<uint8_t> last_wire, results;
   std::vector<uint32_t> capture;
-  std::vector<std::string> drive;
+  std::vector<DriveStep> drive;
   size_t drive_at = 0;
+  int drive_done_frame = 0;
+  double wait_limit = 10, waiting_since = 0;
+  const Selector *stuck = nullptr;
 
   float pointer_x = -1, pointer_y = -1;
   float press_x = 0, press_y = 0;
@@ -371,11 +556,44 @@ struct qui_app {
     backend = std::move(backend_cpu);
   }
 
+  void open_offscreen_cpu(int width, int height) {
+    pixel_w = static_cast<int>(std::lround(static_cast<float>(width) * dpr));
+    pixel_h = static_cast<int>(std::lround(static_cast<float>(height) * dpr));
+    logical_w = static_cast<float>(width);
+    logical_h = static_cast<float>(height);
+    use_cpu();
+  }
+
+  void parse_drive(const std::string &all) {
+    size_t number = 0;
+    for (std::string &text : split_steps(all)) {
+      DriveStep step;
+      step.text = std::move(text);
+      step.number = ++number;
+      if (std::string error; !parse_step(step, error)) {
+        std::fprintf(stderr, "qui: QUI_DRIVE step %zu '%s': %s\n  steps: %s\n  a point is x,y or a selector: @key, \"exact text\" or ~substring, then more parts after spaces to look inside it, and [n] for its nth match\n",
+                     step.number, step.text.c_str(), error.c_str(), kDriveSteps);
+        std::fflush(stderr);
+        std::_Exit(2);
+      }
+      if (step.verb == "wait" && !step.numbers.empty()) {
+        const int frames_to_wait = static_cast<int>(step.numbers[0]);
+        step.numbers.clear();
+        drive.insert(drive.end(), static_cast<size_t>(std::max(1, (frames_to_wait + 1) / 2)), step);
+      } else {
+        drive.push_back(std::move(step));
+      }
+    }
+  }
+
   void open(const char *title, int width, int height) {
     shot_path = env("QUI_SHOT");
     tree_path = env("QUI_TREE");
     wire_path = env("QUI_WIRE");
-    headless = !shot_path.empty() || !tree_path.empty() || !wire_path.empty();
+    const std::string steps = env("QUI_DRIVE");
+    headless = !shot_path.empty() || !tree_path.empty() || !wire_path.empty() || !steps.empty();
+    parse_drive(steps);
+    if (const std::string ms = env("QUI_WAIT_MS"); !ms.empty()) wait_limit = std::atof(ms.c_str()) / 1000.0;
     engine.async_images = !headless;
     engine.on_async = [] {
       SDL_Event event{};
@@ -385,27 +603,13 @@ struct qui_app {
     std::string requested = env("QUI_BACKEND");
     if (const std::string size = env("QUI_SIZE"); !size.empty()) std::sscanf(size.c_str(), "%dx%d", &width, &height);
     if (const std::string scale = env("QUI_DPR"); !scale.empty()) dpr = std::stof(scale);
-    std::string steps = env("QUI_DRIVE");
-    for (size_t at = 0; at < steps.size();) {
-      const size_t end = std::min(steps.find(';', at), steps.size());
-      if (end > at) {
-        std::string step = steps.substr(at, end - at);
-        if (int frames_to_wait = 0; std::sscanf(step.c_str(), "wait:%d", &frames_to_wait) == 1)
-          drive.insert(drive.end(), static_cast<size_t>(std::max(1, (frames_to_wait + 1) / 2)), "wait");
-        else
-          drive.push_back(std::move(step));
-      }
-      at = end + 1;
-    }
 
     if (headless && requested != "gl") {
-      pixel_w = static_cast<int>(std::lround(static_cast<float>(width) * dpr));
-      pixel_h = static_cast<int>(std::lround(static_cast<float>(height) * dpr));
-      logical_w = static_cast<float>(width);
-      logical_h = static_cast<float>(height);
-      use_cpu();
+      open_offscreen_cpu(width, height);
       return;
     }
+    // Offscreen GL runs never show a window or need a display.
+    if (headless && env("SDL_VIDEO_DRIVER").empty()) SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
 
     if (!g_app_id.empty()) SDL_SetAppMetadata(title, nullptr, g_app_id.c_str());
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
@@ -413,6 +617,10 @@ struct qui_app {
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
       std::fprintf(stderr, "qui: could not start SDL: %s\n", SDL_GetError());
+      if (headless) {
+        open_offscreen_cpu(width, height);
+        return;
+      }
       quit = true;
       use_cpu();
       return;
@@ -424,6 +632,12 @@ struct qui_app {
     if (g_borderless) flags |= SDL_WINDOW_BORDERLESS;
 #endif
     if (requested == "cpu" || !create_gl(flags, title, width, height)) {
+      if (headless) {
+        SDL_Quit();
+        sdl_ready = false;
+        open_offscreen_cpu(width, height);
+        return;
+      }
       window = SDL_CreateWindow(title, width, height, flags);
       if (!window) {
         std::fprintf(stderr, "qui: could not create a window: %s\n", SDL_GetError());
@@ -1412,25 +1626,148 @@ struct qui_app {
     }
   }
 
-  int total_frames() const { return std::max(headless_frames(), 6 + static_cast<int>(drive.size()) * 2); }
+  bool drive_done() const { return drive_at >= drive.size() && frames >= std::max(headless_frames(), drive_done_frame + 6); }
 
   void drive_step() {
     if (drive_at >= drive.size() || frames < 2 || frames % 2 != 0) return;
-    const std::string &step = drive[drive_at++];
-    if (step == "wait") return;
-    float x = 0, y = 0, amount = 0, x2 = 0, y2 = 0;
-    if (step.rfind("type:", 0) == 0) {
+    const DriveStep &step = drive[drive_at];
+    std::string why;
+    stuck = nullptr;
+    if (!run_step(step, why)) {
+      if (waiting_since == 0) waiting_since = now();
+      else if (now() - waiting_since > wait_limit) fail_step(step, why);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      return;
+    }
+    waiting_since = 0;
+    ++drive_at;
+    drive_done_frame = frames;
+  }
+
+  [[noreturn]] void fail_step(const DriveStep &step, const std::string &why) {
+    std::fprintf(stderr, "qui: QUI_DRIVE step %zu '%s' failed after %.0f ms: %s\n", step.number, step.text.c_str(), wait_limit * 1000, why.c_str());
+    if (stuck) std::fprintf(stderr, "qui: %s\n", selector_hint(engine, *stuck).c_str());
+    finish();
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(1);
+  }
+
+  std::string describe_id(uint64_t id) const {
+    for (size_t i = 1; i < engine.nodes.size(); ++i)
+      if (engine.nodes[i].id == id) return engine.describe(static_cast<int32_t>(i));
+    return "a link in a text";
+  }
+
+  // Whether a press that lands on `receiver` reaches `target`: it is the
+  // target, a box around it or a box inside it.
+  bool reaches(int32_t target, uint64_t receiver) const {
+    const auto &nodes = engine.nodes;
+    for (int32_t at = target; at >= 0; at = nodes[static_cast<size_t>(at)].parent)
+      if (nodes[static_cast<size_t>(at)].id == receiver) return true;
+    for (size_t i = 1; i < nodes.size(); ++i) {
+      if (nodes[i].id != receiver) continue;
+      for (int32_t at = nodes[i].parent; at >= 0; at = nodes[static_cast<size_t>(at)].parent)
+        if (at == target) return true;
+      return false;
+    }
+    return true;
+  }
+
+  bool resolve_point(const DrivePoint &point, bool scroll, bool check_cover, float &x, float &y, std::string &why) {
+    if (!point.selector) {
+      x = point.x;
+      y = point.y;
+      return true;
+    }
+    const std::vector<int32_t> found = select(engine, point.sel);
+    int32_t target = -1;
+    size_t on_screen = 0;
+    for (const int32_t i : found) {
+      if (engine.nodes[static_cast<size_t>(i)].shown.empty()) continue;
+      if (target < 0) target = i;
+      ++on_screen;
+    }
+    if (target < 0) {
+      stuck = &point.sel;
+      why = found.empty() ? "nothing matches " + point.sel.source
+                          : point.sel.source + " matches " + std::to_string(found.size()) + " node(s), none on screen: " + engine.describe(found[0]);
+      return false;
+    }
+    const IRect &r = engine.nodes[static_cast<size_t>(target)].shown;
+    const float scale = engine.dpr > 0 ? engine.dpr : 1;
+    x = (static_cast<float>(r.x) + static_cast<float>(r.w) * 0.5f) / scale;
+    y = (static_cast<float>(r.y) + static_cast<float>(r.h) * 0.5f) / scale;
+    if (check_cover) {
+      if (const uint64_t receiver = hit_test(x, y, scroll); receiver && !reaches(target, receiver)) {
+        why = point.sel.source + " is covered by " + describe_id(receiver);
+        return false;
+      }
+    }
+    if (on_screen > 1)
+      std::fprintf(stderr, "qui: %s matches %zu nodes on screen, using the first: %s\n", point.sel.source.c_str(), on_screen, engine.describe(target).c_str());
+    return true;
+  }
+
+  // Runs one step, or returns false with the reason when its selector is not
+  // ready yet.
+  bool run_step(const DriveStep &step, std::string &why) {
+    const std::string &verb = step.verb;
+    if (verb == "wait" || verb == "gone") {
+      if (!step.has_sel) return true;
+      for (const int32_t i : select(engine, step.sel)) {
+        if (engine.nodes[static_cast<size_t>(i)].shown.empty()) continue;
+        if (verb == "wait") return true;
+        why = step.sel.source + " is still on screen: " + engine.describe(i);
+        return false;
+      }
+      if (verb == "gone") return true;
+      why = "nothing on screen matches " + step.sel.source;
+      stuck = &step.sel;
+      return false;
+    }
+    if (verb == "find") {
+      const std::vector<int32_t> found = select(engine, step.sel);
+      std::string out = "find " + step.sel.source + ": " + std::to_string(found.size()) + (found.size() == 1 ? " match\n" : " matches\n");
+      for (size_t k = 0; k < found.size() && k < 50; ++k) out += "  " + engine.describe(found[k]) + "\n";
+      if (found.empty()) out += "  " + selector_hint(engine, step.sel) + "\n";
+      std::fwrite(out.data(), 1, out.size(), stdout);
+      std::fflush(stdout);
+      return true;
+    }
+    if (verb == "shot") {
+      write_shot(step.rest);
+      return true;
+    }
+    if (verb == "tree") {
+      write_tree(step.rest);
+      return true;
+    }
+    if (verb == "type") {
       SDL_Event e{};
       e.type = SDL_EVENT_TEXT_INPUT;
-      e.text.text = step.c_str() + 5;
+      e.text.text = step.rest.c_str();
       handle(e);
-      return;
+      return true;
     }
-    if (step.rfind("ime:", 0) == 0) {
-      set_preedit(step.c_str() + 4, step.size() - 4);
-      return;
+    if (verb == "ime") {
+      set_preedit(step.rest.c_str(), step.rest.size());
+      return true;
     }
-    if (int used = 0; std::sscanf(step.c_str(), "dragover:%f,%f%n", &x, &y, &used) == 2 || std::sscanf(step.c_str(), "drop:%f,%f,%n", &x, &y, &used) == 2) {
+    if (verb == "key") {
+      uint32_t key = 0, mods = 0;
+      parse_key(step.rest, key, mods);
+      on_key(key, mods);
+      return true;
+    }
+
+    float px[2] = {}, py[2] = {};
+    for (size_t k = 0; k < step.points.size() && k < 2; ++k)
+      if (!resolve_point(step.points[k], verb == "wheel", k == 0, px[k], py[k], why)) return false;
+    float x = px[0], y = py[0], x2 = px[1], y2 = py[1];
+    const auto number = [&](size_t k) { return k < step.numbers.size() ? step.numbers[k] : 0.f; };
+
+    if (verb == "dragover" || verb == "drop") {
       const auto drop = [&](SDL_EventType type, const char *data = nullptr) {
         SDL_Event e{};
         e.type = type;
@@ -1441,25 +1778,11 @@ struct qui_app {
       };
       drop(SDL_EVENT_DROP_BEGIN);
       drop(SDL_EVENT_DROP_POSITION);
-      if (step.rfind("drop:", 0) == 0) {
-        drop(SDL_EVENT_DROP_FILE, step.c_str() + used);
+      if (verb == "drop") {
+        drop(SDL_EVENT_DROP_FILE, step.rest.c_str());
         drop(SDL_EVENT_DROP_COMPLETE);
       }
-      return;
-    }
-    if (step.rfind("key:", 0) == 0) {
-      std::string_view rest = std::string_view(step).substr(4);
-      uint32_t mods = 0;
-      for (size_t plus = rest.find('+'); plus != std::string_view::npos && rest.size() > 1; plus = rest.find('+')) {
-        const std::string_view modifier = rest.substr(0, plus);
-        if (modifier == "shift") mods |= ModShift;
-        else if (modifier == "ctrl") mods |= ModCtrl;
-        else if (modifier == "alt") mods |= ModAlt;
-        else if (modifier == "meta") mods |= ModMeta;
-        rest.remove_prefix(plus + 1);
-      }
-      on_key(key_from_name(rest), mods);
-      return;
+      return true;
     }
     const auto motion = [&] {
       SDL_Event e{};
@@ -1485,23 +1808,23 @@ struct qui_app {
       e.tfinger.y = fy / logical_h;
       handle(e);
     };
-    float ms = 0;
-    if (std::sscanf(step.c_str(), "touch:%f,%f", &x, &y) == 2) {
+    if (verb == "touch") {
       finger(SDL_EVENT_FINGER_DOWN, x, y);
-    } else if (std::sscanf(step.c_str(), "touchmove:%f,%f", &x, &y) == 2) {
+    } else if (verb == "touchmove") {
       finger(SDL_EVENT_FINGER_MOTION, x, y);
-    } else if (std::sscanf(step.c_str(), "touchup:%f,%f", &x, &y) == 2) {
+    } else if (verb == "touchup") {
       finger(SDL_EVENT_FINGER_UP, x, y);
-    } else if (std::sscanf(step.c_str(), "tap:%f,%f", &x, &y) == 2) {
+    } else if (verb == "tap") {
       finger(SDL_EVENT_FINGER_DOWN, x, y);
       finger(SDL_EVENT_FINGER_UP, x, y);
-    } else if (std::sscanf(step.c_str(), "longpress:%f,%f", &x, &y) == 2) {
+    } else if (verb == "longpress") {
       finger(SDL_EVENT_FINGER_DOWN, x, y);
       drive_clock += kLongPress + 0.01;
       run_timers();
       finger(SDL_EVENT_FINGER_UP, x, y);
-    } else if (std::sscanf(step.c_str(), "swipe:%f,%f,%f,%f,%f", &x, &y, &x2, &y2, &ms) == 5) {
+    } else if (verb == "swipe") {
       constexpr int kSteps = 12;
+      const float ms = number(0);
       finger(SDL_EVENT_FINGER_DOWN, x, y);
       for (int i = 1; i <= kSteps; ++i) {
         const float t = static_cast<float>(i) / kSteps;
@@ -1509,53 +1832,53 @@ struct qui_app {
         finger(SDL_EVENT_FINGER_MOTION, x + (x2 - x) * t, y + (y2 - y) * t);
       }
       finger(SDL_EVENT_FINGER_UP, x2, y2);
-    } else if (std::sscanf(step.c_str(), "pinch:%f,%f,%f,%f", &x, &y, &x2, &y2) == 4) {
+    } else if (verb == "pinch") {
       constexpr int kSteps = 8;
-      finger(SDL_EVENT_FINGER_DOWN, x - x2 / 2, y, 1);
-      finger(SDL_EVENT_FINGER_DOWN, x + x2 / 2, y, 2);
+      const float from = number(0), to = number(1);
+      finger(SDL_EVENT_FINGER_DOWN, x - from / 2, y, 1);
+      finger(SDL_EVENT_FINGER_DOWN, x + from / 2, y, 2);
       for (int i = 1; i <= kSteps; ++i) {
-        const float half = (x2 + (y2 - x2) * static_cast<float>(i) / kSteps) / 2;
+        const float half = (from + (to - from) * static_cast<float>(i) / kSteps) / 2;
         finger(SDL_EVENT_FINGER_MOTION, x - half, y, 1);
         finger(SDL_EVENT_FINGER_MOTION, x + half, y, 2);
       }
-      finger(SDL_EVENT_FINGER_UP, x - y2 / 2, y, 2);
-      finger(SDL_EVENT_FINGER_UP, x + y2 / 2, y, 1);
-    } else if (std::sscanf(step.c_str(), "drag:%f,%f,%f,%f", &x, &y, &x2, &y2) == 4) {
+      finger(SDL_EVENT_FINGER_UP, x - to / 2, y, 2);
+      finger(SDL_EVENT_FINGER_UP, x + to / 2, y, 1);
+    } else if (verb == "drag") {
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
       x = x2;
       y = y2;
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
-    } else if (std::sscanf(step.c_str(), "dblclick:%f,%f", &x, &y) == 2) {
+    } else if (verb == "dblclick") {
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, 2);
       button(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT, 2);
-    } else if (std::sscanf(step.c_str(), "click:%f,%f", &x, &y) == 2) {
+    } else if (verb == "click") {
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
       button(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
-    } else if (std::sscanf(step.c_str(), "rclick:%f,%f", &x, &y) == 2) {
+    } else if (verb == "rclick") {
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_RIGHT);
       button(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_RIGHT);
-    } else if (std::sscanf(step.c_str(), "down:%f,%f", &x, &y) == 2) {
+    } else if (verb == "down") {
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
-    } else if (std::sscanf(step.c_str(), "up:%f,%f", &x, &y) == 2) {
+    } else if (verb == "up") {
       motion();
       button(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
-    } else if (std::sscanf(step.c_str(), "move:%f,%f", &x, &y) == 2) {
+    } else if (verb == "move") {
       motion();
-    } else if (std::sscanf(step.c_str(), "wheel:%f,%f,%f", &x, &y, &amount) == 3) {
+    } else if (verb == "wheel") {
       motion();
       SDL_Event e{};
       e.type = SDL_EVENT_MOUSE_WHEEL;
-      e.wheel.y = amount;
+      e.wheel.y = number(0);
       handle(e);
-    } else {
-      std::fprintf(stderr, "qui: ignoring QUI_DRIVE step '%s'\n", step.c_str());
     }
+    return true;
   }
 
   bool animating() const { return !cpu && !engine.previous.shaders.empty(); }
@@ -1704,6 +2027,8 @@ struct qui_app {
     std::memcpy(p + 52, &focused_flag, 4);
     const uint32_t touch_flag = input_touch ? 1u : 0u;
     std::memcpy(p + 56, &touch_flag, 4);
+    const uint32_t debug_flags = headless ? 1u : 0u;
+    std::memcpy(p + 60, &debug_flags, 4);
     if (!keys.empty()) std::memcpy(p + keys_at, keys.data(), keys.size() * 4);
     if (!text_blob.empty()) std::memcpy(p + text_at, text_blob.data(), text_blob.size());
 
@@ -1759,13 +2084,30 @@ struct qui_app {
     keys.clear();
   }
 
-  void finish() {
-    if (!shot_path.empty()) {
-      backend->read_pixels(capture);
-      if (write_png(shot_path, capture.data(), pixel_w, pixel_h))
-        std::fprintf(stderr, "qui: wrote %s (%dx%d, %zu nodes, %zu draw instances)\n", shot_path.c_str(), pixel_w, pixel_h, engine.nodes.size() - 1, engine.previous.instances.size());
+  void write_shot(const std::string &path) {
+    backend->read_pixels(capture);
+    if (write_png(path, capture.data(), pixel_w, pixel_h))
+      std::fprintf(stderr, "qui: wrote %s (%dx%d, %zu nodes, %zu draw instances)\n", path.c_str(), pixel_w, pixel_h, engine.nodes.size() - 1, engine.previous.instances.size());
+    else
+      std::fprintf(stderr, "qui: could not write %s\n", path.c_str());
+  }
+
+  // A path ending in .json gets every node as JSON, anything else the outline
+  // of what is on screen; - prints the outline.
+  void write_tree(const std::string &path) {
+    const bool json = path.size() > 5 && path.compare(path.size() - 5, 5, ".json") == 0;
+    const std::string text = json ? engine.tree_json() : engine.tree_outline();
+    if (path == "-") {
+      std::fwrite(text.data(), 1, text.size(), stdout);
+      std::fflush(stdout);
+    } else if (!(std::ofstream(path) << text)) {
+      std::fprintf(stderr, "qui: could not write %s\n", path.c_str());
     }
-    if (!tree_path.empty()) std::ofstream(tree_path) << engine.tree_json();
+  }
+
+  void finish() {
+    if (!shot_path.empty()) write_shot(shot_path);
+    if (!tree_path.empty()) write_tree(tree_path);
     if (!wire_path.empty()) std::ofstream(wire_path, std::ios::binary).write(reinterpret_cast<const char *>(last_wire.data()), static_cast<std::streamsize>(last_wire.size()));
   }
 
@@ -1999,7 +2341,7 @@ void qui_close(qui_app *app) {
 
 const uint8_t *qui_frame_begin(qui_app *app, size_t *len) {
   if (app->headless) {
-    if (app->frames >= app->total_frames() && !app->fling_id && !app->smooth_id) {
+    if (app->drive_done() && !app->fling_id && !app->smooth_id) {
       app->finish();
       return nullptr;
     }

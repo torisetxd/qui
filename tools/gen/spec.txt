@@ -2,7 +2,7 @@
 # Run `go run ./tools/gen` after editing; `go run ./tools/gen -check` fails
 # when a generated file is stale.
 
-version 28
+version 29
 
 kind Box 0
 kind Text 1
@@ -144,6 +144,10 @@ op Role 23 role:u8 native=custom
   clicks on Enter and Space, gets the hover and press tints like a `Button`
   node, and is role=button on the web."
 op Label 24 label:str "The accessible name."
+op Key 67 key_name:str web=skip
+  "The key the node was opened with. Sent only when bit 0 of the results
+  header's `debug` field is set, as offscreen runs do, so `QUI_TREE` and
+  `QUI_DRIVE` selectors can name nodes."
 op Value 56 value:f32 native=skip
   "The state of a `Switch` (0 or 1) or `Slider` (0 to 1) box, for assistive
   tech."

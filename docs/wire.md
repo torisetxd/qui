@@ -58,6 +58,7 @@ The stream starts with `Frame` and then holds nodes in pre-order. A node is
 | `Gestures` 44 | `gestures:u8` | Mask of `PanX`, `PanY`, `Pinch` and `TouchOnly`. |
 | `Role` 23 | `role:u8` | On the web it picks the element. `Button` on a `Hit` box: takes focus, clicks on Enter and Space, gets the hover and press tints like a `Button` node, and is role=button on the web. |
 | `Label` 24 | `label:str` | The accessible name. |
+| `Key` 67 | `key_name:str` | The key the node was opened with. Sent only when bit 0 of the results header's `debug` field is set, as offscreen runs do, so `QUI_TREE` and `QUI_DRIVE` selectors can name nodes. Native only; the browser ignores it. |
 | `Value` 56 | `value:f32` | The state of a `Switch` (0 or 1) or `Slider` (0 to 1) box, for assistive tech. The engine ignores it. |
 | `Text` 25 | `text:str` |  |
 | `Span` 49 | `start:u32` `end:u32` `flags:u8` `fg:u32` `bg:u32` `id:u64` `image:u64` | After `Text`. Styles a byte range; `id` non-zero makes it a hit target reported under that id. `flags`: `Bold` 1, `Mono` 2, `Italic` 4, `Underline` 8, `Strike` 16, `HoverUnderline` 64 (underlines only while the span is hovered or pressed), `Image` 32 (draws the loaded image `image` over the span's placeholder text). |
@@ -95,7 +96,8 @@ next one, so widget calls never cross into the engine.
 The header is 64 bytes: `magic:u32 capacity:u32 width:f32 height:f32 dpr:f32
 dt:f32 pointer_x:f32 pointer_y:f32 keys_offset:u32 keys_count:u32
 text_offset:u32 pointer_down:u32 engine_ms:f32 window_focused:u32
-pointer_touch:u32` and 4 reserved bytes. It is followed by `capacity` slots of 56 bytes,
+pointer_touch:u32 debug:u32`. Bit 0 of `debug` asks the app to send `Key` after
+each `Open` that has a key; offscreen runs set it. The header is followed by `capacity` slots of 56 bytes,
 open-addressed with linear probing from `id & (capacity - 1)`. An empty slot has
 `id == 0`.
 

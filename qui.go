@@ -143,6 +143,7 @@ type Ui struct {
 	textClasses  map[string]TextStyle
 	started      bool
 	reduceMotion bool
+	sendKeys     bool
 	nodes        int
 	stats        Stats
 	frame        uint64
@@ -167,6 +168,7 @@ func (u *Ui) Frame() bool {
 	}
 	u.res = res
 	u.started = true
+	u.sendKeys = len(res) >= resultsHeader && binary.LittleEndian.Uint32(res[60:])&1 != 0
 	u.buf = u.buf[:0]
 	u.nodes = 0
 	u.frame++
@@ -477,6 +479,9 @@ func (u *Ui) open(kind uint8, key string) uint64 {
 	u.u8(opOpen)
 	u.u8(kind)
 	u.u64(id)
+	if u.sendKeys && key != "" {
+		u.str(opKey, key)
+	}
 	return id
 }
 

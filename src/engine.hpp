@@ -82,6 +82,9 @@ struct Node : NodeProps {
   int32_t select_root = -1;
 
   float iw = 0, ih = 0, x = 0, y = 0, w = 0, h = 0;
+  // The part of the box left on screen by clipping, in device pixels; paint
+  // leaves it empty for boxes clipped away or fully transparent.
+  IRect shown;
   uint32_t line_first = 0, line_count = 0;
   FontInstanceId font = 0;
   // Set by the width pass for text with a single paragraph, so wrapping does
@@ -375,6 +378,10 @@ class Engine {
 
   IRect swap_and_damage();
   std::string tree_json() const;
+  // One line per visible node worth naming, indented by nesting.
+  std::string tree_outline() const;
+  // The outline line of one node, without indentation.
+  std::string describe(int32_t index) const;
 
  private:
   SystemFont sans_regular_, sans_bold_, mono_regular_, mono_bold_;

@@ -374,21 +374,27 @@ func main() {
 
 ## Verify without a window
 
-Any of the first three variables runs the app offscreen for a few frames and exits. Inspect the PNG or JSON rather than assuming the UI is right. Offscreen runs use the CPU backend, which skips shaders, unless `QUI_BACKEND=gl` is set. Frames run faster than real time, so raise `QUI_FRAMES` if an animation has not settled.
+Any of these variables runs the app offscreen and exits; no window opens and no display is needed. Check the output rather than assuming the UI is right. The CPU renderer skips shaders unless `QUI_BACKEND=gl`. Frames run faster than real time, so raise `QUI_FRAMES` if an animation has not settled.
 
 | Variable | Effect |
 | --- | --- |
+| `QUI_TREE=-` | Print an outline of what is on screen, one line per named node: `button @send "Send" hit 1180,840 80x32` (kind, `@key`, text, logical rect). Another path writes it to a file, a `.json` path every node with `key label role shown hidden hit focused caret` |
 | `QUI_SHOT=a.png` | Write a screenshot |
-| `QUI_TREE=a.json` | Dump every node: `id parent kind x y w h text placeholder hit focused caret anchor` |
 | `QUI_WIRE=a.bin` | Dump the frame's wire bytes |
-| `QUI_SIZE=1100x700` | Viewport size |
-| `QUI_DPR=2` | Pixel ratio |
+| `QUI_DRIVE='click:@send;type:hi;key:enter'` | Scripted input, `;` separated (below) |
+| `QUI_SIZE=1100x700`, `QUI_DPR=2` | Viewport size, pixel ratio |
 | `QUI_BACKEND=cpu` or `gl` | Force a renderer |
 | `QUI_FRAMES=n` | Minimum frames before exiting |
-| `QUI_DRIVE='click:58,231;type:hello;key:ctrl+a'` | Scripted input, `;` separated, in logical pixels: `click:x,y`, `dblclick:x,y`, `rclick:x,y`, `drag:x0,y0,x1,y1`, `down:x,y`, `up:x,y`, `move:x,y`, `wheel:x,y,amount` (negative scrolls down), `type:text`, `key:shift+left`, `ime:text`, `wait:frames`, `dragover:x,y`, `drop:x,y,path`. Touch: `tap:x,y`, `longpress:x,y`, `swipe:x0,y0,x1,y1,ms`, `pinch:x,y,spread0,spread1`, `touch:x,y`, `touchmove:x,y`, `touchup:x,y` |
+| `QUI_WAIT_MS=10000` | How long a step waits for its selector |
+
+Where a step takes a point, give `x,y` in logical pixels or a selector, which aims at the center of the node's visible part: `@key` (the `Key` or id string the node was opened with), `"exact text"` or `~text` (any case), matched against text, label or placeholder. Parts after a space must be inside the one before (`@sidebar "Settings"`), and `[n]` keeps the nth match from 0. A step waits until its node is on screen and not covered by another hit box, and fails after `QUI_WAIT_MS`.
+
+Steps: `click:P`, `dblclick:P`, `rclick:P`, `down:P`, `up:P`, `move:P`, `drag:P,P`, `wheel:P,amount` (negative scrolls down), `type:text`, `key:ctrl+shift+left`, `ime:text`, `dragover:P`, `drop:P,path`; touch: `tap:P`, `longpress:P`, `swipe:P,P,ms`, `pinch:P,spread0,spread1`, `touch:P`, `touchmove:P`, `touchup:P`. Checks: `wait:frames`, `wait:sel` (until on screen), `gone:sel`, `find:sel` (prints matches), `shot:path`, `tree:path` (or `-`).
+
+A malformed step exits 2 before the first frame. A step that times out exits 1 after printing why (no match, off screen, or covered by which node) with similar nodes, and writes `QUI_SHOT` and `QUI_TREE` first.
 
 ## Not available yet
 
 Do not assume these exist: animated images, right-to-left paragraphs (mixed text orders correctly, but the base direction is always left-to-right), global shortcuts. On the web, list spacers use the estimate, so the scrollbar can shift when real heights differ.
 
-To add a node kind, op or token, edit `tools/gen/spec.txt` and run `go run ./tools/gen`; `docs/wire.md` documents the format.
+The C++ API without bodies is in `docs/cpp.md` (Go: `go doc`). To add a node kind, op or token, edit `tools/gen/spec.txt` and run `go run ./tools/gen`; `docs/wire.md` documents the format.

@@ -12,7 +12,7 @@ else()
   set(QUI_FONT_SOURCE src/system_fonts_fontconfig.cpp)
 endif()
 
-add_library(qui STATIC src/app.cpp src/cpu.cpp src/engine.cpp src/font_manager.cpp src/gl.cpp src/input.cpp src/svg.cpp ${QUI_FONT_SOURCE} src/text_shaper.cpp)
+add_library(qui STATIC src/app.cpp src/cpu.cpp src/drive.cpp src/engine.cpp src/font_manager.cpp src/gl.cpp src/input.cpp src/svg.cpp ${QUI_FONT_SOURCE} src/text_shaper.cpp)
 target_compile_features(qui PUBLIC cxx_std_20)
 target_include_directories(qui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(qui PRIVATE PkgConfig::QUI_DEPS)

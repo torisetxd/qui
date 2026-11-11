@@ -1299,6 +1299,7 @@ void Engine::paint_node(int index, float opacity, IRect clip) {
   const float w = x1 - x0, h = y1 - y0;
   const IRect bounds{static_cast<int>(x0), static_cast<int>(y0), static_cast<int>(w), static_cast<int>(h)};
   const IRect visible = intersect(bounds, clip);
+  node.shown = alpha > 0 ? visible : IRect{};
 
   const auto fade = [&](uint32_t c) {
     const auto a = static_cast<uint32_t>(static_cast<float>(c & 0xffu) * alpha + 0.5f);
@@ -1558,6 +1559,7 @@ std::string Engine::tree_json() const {
     return escaped;
   };
   static const char *const kinds[] = {"box", "text", "button", "list", "shader", "input", "image", "icon"};
+  static const char *const roles[] = {"", "heading", "link", "image", "main", "nav", "switch", "slider", "menu", "menuitem", "button"};
   for (size_t i = 1; i < nodes.size(); ++i) {
     const Node &n = nodes[i];
     char buffer[256];
@@ -1566,6 +1568,16 @@ std::string Engine::tree_json() const {
     out += buffer;
     if (n.placeholder_shown) out += ",\"placeholder\":\"" + escape(n.text) + "\"";
     else if (!n.text.empty()) out += ",\"text\":\"" + escape(n.text) + "\"";
+    if (!n.key_name.empty()) out += ",\"key\":\"" + escape(n.key_name) + "\"";
+    if (!n.label.empty()) out += ",\"label\":\"" + escape(n.label) + "\"";
+    if (n.role > 0 && n.role < 11) out += std::string(",\"role\":\"") + roles[n.role] + "\"";
+    if (n.shown.empty()) {
+      out += ",\"hidden\":true";
+    } else {
+      std::snprintf(buffer, sizeof(buffer), ",\"shown\":[%.1f,%.1f,%.1f,%.1f]", static_cast<float>(n.shown.x) / dpr, static_cast<float>(n.shown.y) / dpr,
+                    static_cast<float>(n.shown.w) / dpr, static_cast<float>(n.shown.h) / dpr);
+      out += buffer;
+    }
     if (n.hit) out += ",\"hit\":true";
     if (n.gestures) out += ",\"gestures\":" + std::to_string(n.gestures);
     if (n.id == ui.focused) out += ",\"focused\":true";

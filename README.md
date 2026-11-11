@@ -171,12 +171,13 @@ Check your work without opening a window. These run from the repo root and exit 
 | --- | --- |
 | Screenshot | `QUI_SHOT=a.png QUI_SIZE=1440x900 go run ./examples/billing` |
 | Screenshot with shaders | `QUI_BACKEND=gl QUI_FRAMES=1500 QUI_SHOT=a.png go run ./examples/billing` |
+| Outline of what is on screen | `QUI_TREE=- go run ./examples/billing` |
 | Every node's rect and text | `QUI_TREE=a.json go run ./examples/billing` |
-| Click, then screenshot | `QUI_DRIVE='click:116,152' QUI_SHOT=a.png go run ./examples/billing` |
+| Click, then screenshot | `QUI_DRIVE='click:"Payments";wait:@pay-tabs' QUI_SHOT=a.png go run ./examples/billing` |
 
 - Offscreen runs use the CPU renderer unless you set `QUI_BACKEND=gl`, and the CPU renderer skips shaders.
 - Frames run faster than real time offscreen, so raise `QUI_FRAMES` if an animation hasn't settled.
-- `SKILL.md` lists every scripted input step, including typing, dragging and scrolling.
+- `QUI_DRIVE` steps aim at selectors (`@key`, `"text"`, `~text`) or coordinates, wait for their node, and exit 1 with the reason when it never shows. `SKILL.md` lists every step.
 
 When changing the framework itself:
 

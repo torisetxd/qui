@@ -7,7 +7,7 @@ namespace qui {
 
 namespace wire {
 
-inline constexpr uint8_t kVersion = 28;
+inline constexpr uint8_t kVersion = 29;
 inline constexpr int kThemeCount = 4;
 inline constexpr int kTokenCount = 19;
 
@@ -79,6 +79,7 @@ enum Op : uint8_t {
   OpFixed = 64,
   OpNoScrollbar = 65,
   OpImageShared = 66,
+  OpKey = 67,
 };
 
 enum Kind : uint8_t {

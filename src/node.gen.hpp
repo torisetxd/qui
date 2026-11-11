@@ -12,6 +12,7 @@ namespace qui {
 // native=custom in spec.txt are decoded by hand in engine.cpp instead.
 struct NodeProps {
   std::string_view label;
+  std::string_view key_name;
   std::string_view text;
   std::string_view src;
   std::string_view placeholder;
@@ -113,6 +114,7 @@ bool decode_props(uint8_t op, NodeProps &n, Reader &in) {
     case wire::OpWrap: n.wrap = true; return true;
     case wire::OpGestures: n.gestures = in.template read<uint8_t>(); return true;
     case wire::OpLabel: n.label = in.str(); return true;
+    case wire::OpKey: n.key_name = in.str(); return true;
     case wire::OpValue: static_cast<void>(in.template read<float>()); return true;
     case wire::OpText: n.text = in.str(); return true;
     case wire::OpFontSize: n.font_size = in.template read<float>(); return true;

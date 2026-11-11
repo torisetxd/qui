@@ -230,6 +230,7 @@ class Ui {
     res_ = qui_frame_begin(app_, &len);
     if (!res_) return false;
     started_ = true;
+    send_keys_ = (header_u32(60) & 1) != 0;
     nodes_ = 0;
     ++frame_count_;
     std::erase_if(tweens_, [&](const auto &kv) { return kv.second.seen + 1 < frame_count_; });
@@ -970,6 +971,7 @@ class Ui {
     u8(wire::OpOpen);
     u8(kind);
     u64(id);
+    if (send_keys_ && !key.empty()) str(wire::OpKey, key);
     return id;
   }
 
@@ -1124,6 +1126,7 @@ class Ui {
   const uint8_t *res_ = nullptr;
   bool started_ = false;
   bool reduce_motion_ = false;
+  bool send_keys_ = false;
   uint64_t frame_count_ = 0;
   std::unordered_map<uint64_t, Tween> tweens_;
   uint8_t theme_ = 0;
