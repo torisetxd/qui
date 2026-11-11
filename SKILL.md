@@ -87,9 +87,12 @@ A strict flexbox subset that maps directly to CSS.
 - Text is mouse-selectable everywhere, as in a browser (drag, double-click a word, triple-click a text, Ctrl+C copies), except in buttons, inputs, menus, switches and sliders; a drag that selects text does not click or drag the `Hit` box under it. `NoSelect: true` turns selection off for a subtree (navigation, lists you click through, draggable tiles) and `Select: true` turns it back on below and keeps a selection that starts there inside it; modals, popups and drawers do that already. `ui.SelectedText()` (C++ `selected_text()`) returns the selection for a Copy menu item. Touch input does not select.
 - `ScrollTo: &offset` sets a `Scroll` box's offset for that frame. Animate it yourself for smooth anchors, and stop sending it when done so the user can scroll. A zero-height `Hit` box inside the scroller reports its viewport-relative `Y` even offscreen, which gives you scroll position, reveal-on-scroll and scroll-spy. Web scrolling does not wake the loop, so run a ticker calling `ui.Wake()` for those.
 
-`Style` fields, in order: `W H MinW MaxW MinH MaxH Pad Gap Align Justify Absolute X Y Z Bg Fg Border BorderW Radius Opacity Gradient Shadow Clip Scroll Hit ScrollTo Gestures Role Label Key Class Select Wrap NoSelect Ease HoverBg Drag Fixed NoScrollbar` (C++ `select`, `wrap`, `no_select`, `ease`, `hover_bg`, `drag`, `fixed`, `no_scrollbar` come last)
+<!-- gen:fields -->
+`Style` fields, in declaration order (C++ names are the snake_case of these, and `Class` is `klass`): `Class W H MinW MaxW MinH MaxH Pad Gap Align Justify Absolute X Y Z Bg Fg Border BorderW Radius Opacity Gradient Shadow Clip Scroll Hit ScrollTo Gestures Role Label Key Select Wrap NoSelect Ease HoverBg Drag Fixed NoScrollbar`
 
-`TextStyle` fields, in order: `Size Bold Mono Ellipsis Color W Align Role Gradient Tracking Class`. Presets: `Body H1 H2 Small Code`.
+`TextStyle` fields, in order: `Class Size Bold Mono Ellipsis Color W Align Role Gradient Tracking`
+<!-- /gen:fields -->
+Presets: `Body H1 H2 Small Code`.
 
 `Response` fields: `Found Hovered Pressed Clicked RightClicked Focused DragStart Dragging DragEnd Changed Submitted LongPressed DoubleTapped PanStart Panning PanEnd Pinching X Y W H DX DY VX VY Scale Swipe First Count Error`. `ui.Peek(key)` returns last frame's `Response` for a keyed node before you build it, to style it by its hover (C++ `peek`).
 

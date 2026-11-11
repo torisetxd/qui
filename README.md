@@ -180,7 +180,7 @@ Check your work without opening a window. These run from the repo root and exit 
 
 When changing the framework itself:
 
-- To add a node kind, op or token, edit `tools/gen/spec.txt` and run `go run ./tools/gen`. Never hand-edit the generated `wire_gen.go`, `src/wire.gen.hpp` or `web/wire.gen.js`.
+- To add an op, style field, node kind or token, edit `tools/gen/spec.txt` and run `go run ./tools/gen`. It writes the style structs and encoders for Go and C++, both decoders and the docs; never hand-edit its output (`*_gen.go`, `src/*.gen.*`, `web/wire.gen.js`). `AGENTS.md` has the steps.
 - Rendering changes need checking on `QUI_BACKEND=gl`, `QUI_BACKEND=cpu` and in a browser.
 
 ### Repo map
@@ -195,7 +195,8 @@ When changing the framework itself:
 | `src/gl.cpp`, `src/cpu.cpp` | GPU and CPU renderers |
 | `src/font_manager.cpp`, `src/text_shaper.cpp` | Fonts, glyph cache and shaping |
 | `web/qui.js` | Browser DOM patcher |
-| `tools/gen` (`spec.txt`) | Wire format source and code generator |
+| `tools/gen` (`spec.txt`) | Wire format and style source, and the code generator |
+| `docs/cpp.md` | The C++ API without function bodies, generated from `src/qui.hpp` |
 | `cmd/qui` | The `qui build` command |
 | `sys/` | Linux install, services and capture |
 | `examples/` | Showcase, landing page and billing dashboard |

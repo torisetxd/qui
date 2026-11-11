@@ -53,58 +53,9 @@ struct BoxShadow {
   float blur = 0, y = 0;
 };
 
-struct Style {
-  std::string_view klass{};
-  Size w{}, h{};
-  float min_w = 0, max_w = 0, min_h = 0, max_h = 0;
-  Edges pad{};
-  float gap = 0;
-  uint8_t align = 0, justify = 0;
-  bool absolute = false;
-  float x = 0, y = 0;
-  int32_t z = 0;
-  Color bg = 0, fg = 0, border = 0;
-  float border_w = 0, radius = 0, opacity = 0;
-  Gradient gradient{};
-  BoxShadow shadow{};
-  bool clip = false, scroll = false, hit = false;
-  std::optional<float> scroll_to{};
-  uint8_t gestures = 0;
-  uint8_t role = 0;
-  std::string_view label{}, key{};
-  bool select = false;
-  bool wrap = false;
-  // Keeps the mouse from selecting text in this subtree; select on a
-  // descendant turns it back on there.
-  bool no_select = false;
-  // Animates changes to bg, fg, border, radius, opacity and the hover tint of
-  // buttons over this many milliseconds.
-  float ease = 0;
-  // Replaces bg while the pointer is over the box or anything in it, without
-  // waiting a frame.
-  Color hover_bg = 0;
-  // Moves the window when pressed outside the hit boxes inside it, as a title
-  // bar does. Native desktop only; see set_borderless.
-  bool drag = false;
-  // Positions the box at x, y in window coordinates, as CSS position: fixed
-  // does. Fill sizes take the window's size, and the parent's clip and scroll
-  // do not apply.
-  bool fixed = false;
-  // Scrolls without drawing a scrollbar; the wheel, touch and keys still work.
-  bool no_scrollbar = false;
-};
-
-struct TextStyle {
-  std::string_view klass{};
-  float size = 0;
-  bool bold = false, mono = false, ellipsis = false;
-  Color color = 0;
-  Size w{};
-  uint8_t align = 0;
-  uint8_t role = 0;
-  Gradient gradient{};
-  float tracking = 0;
-};
+// Style and TextStyle, with their encoders and class merges, come from
+// tools/gen/spec.txt.
+#include "style.gen.inc"
 
 inline constexpr int32_t kOverlayZ = 1 << 20;
 inline constexpr float kIconSize = 20;
@@ -432,16 +383,7 @@ class Ui {
       u64(span_id);
       u64(s.image.empty() ? 0 : mix(0, s.image.data(), s.image.size()));
     }
-    if (style.size) f32_op(wire::OpFontSize, style.size);
-    if (style.bold) u8_op(wire::OpWeight, 1);
-    if (style.mono) u8(wire::OpMono);
-    if (style.ellipsis) u8(wire::OpEllipsis);
-    if (style.color) u32_op(wire::OpFg, style.color);
-    size_op(wire::OpWidth, style.w);
-    if (style.align) u8_op(wire::OpJustify, style.align);
-    if (style.role) u8_op(wire::OpRole, style.role);
-    emit_gradient(style.gradient);
-    if (style.tracking) f32_op(wire::OpTracking, style.tracking);
+    gen::encode(buf_, style, reduce_motion_);
     u8(wire::OpEnd);
     return out;
   }
@@ -1031,14 +973,6 @@ class Ui {
     return id;
   }
 
-  void emit_gradient(const Gradient &g) {
-    if (!g.from && !g.to) return;
-    u8(wire::OpGradient);
-    u32(g.from);
-    u32(g.to);
-    f32(g.angle);
-  }
-
   void send_svg(const Svg &svg) {
     if (!svg.id || !sent_svgs_.insert(svg.id).second) return;
     pending_images_.push_back(wire::OpSvgData);
@@ -1087,7 +1021,7 @@ class Ui {
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
       Style base = **it;
       if (!base.klass.empty()) base = resolve_style(base);
-      merge_style(s, base);
+      gen::merge(s, base);
     }
     return s;
   }
@@ -1098,120 +1032,14 @@ class Ui {
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
       TextStyle base = **it;
       if (!base.klass.empty()) base = resolve_text(base);
-      if (!t.size) t.size = base.size;
-      t.bold |= base.bold;
-      t.mono |= base.mono;
-      t.ellipsis |= base.ellipsis;
-      if (!t.color) t.color = base.color;
-      if (t.w.mode == wire::SizeFit) t.w = base.w;
-      if (!t.align) t.align = base.align;
-      if (!t.role) t.role = base.role;
-      if (!t.gradient.from && !t.gradient.to) t.gradient = base.gradient;
-      if (!t.tracking) t.tracking = base.tracking;
+      gen::merge(t, base);
     }
     return t;
   }
 
-  static void merge_style(Style &s, const Style &b) {
-    if (s.w.mode == wire::SizeFit) s.w = b.w;
-    if (s.h.mode == wire::SizeFit) s.h = b.h;
-    if (!s.min_w) s.min_w = b.min_w;
-    if (!s.max_w) s.max_w = b.max_w;
-    if (!s.min_h) s.min_h = b.min_h;
-    if (!s.max_h) s.max_h = b.max_h;
-    if (!s.pad.top && !s.pad.right && !s.pad.bottom && !s.pad.left) s.pad = b.pad;
-    if (!s.gap) s.gap = b.gap;
-    if (!s.align) s.align = b.align;
-    if (!s.justify) s.justify = b.justify;
-    if (!s.absolute) {
-      s.absolute = b.absolute;
-      s.x = b.x;
-      s.y = b.y;
-    }
-    if (!s.z) s.z = b.z;
-    if (!s.bg) s.bg = b.bg;
-    if (!s.fg) s.fg = b.fg;
-    if (!s.border) {
-      s.border = b.border;
-      s.border_w = b.border_w;
-    }
-    if (!s.radius) s.radius = b.radius;
-    if (!s.opacity) s.opacity = b.opacity;
-    if (!s.ease) s.ease = b.ease;
-    if (!s.hover_bg) s.hover_bg = b.hover_bg;
-    s.drag |= b.drag;
-    s.fixed |= b.fixed;
-    s.no_scrollbar |= b.no_scrollbar;
-    if (!s.gradient.from && !s.gradient.to) s.gradient = b.gradient;
-    if (!s.shadow.color) s.shadow = b.shadow;
-    s.clip |= b.clip;
-    s.scroll |= b.scroll;
-    s.hit |= b.hit;
-    s.select |= b.select;
-    s.wrap |= b.wrap;
-    s.no_select |= b.no_select;
-    if (!s.gestures) s.gestures = b.gestures;
-    if (!s.role) s.role = b.role;
-    if (s.label.empty()) s.label = b.label;
-  }
-
   void emit_style(const Style &given) {
-    Style resolved;
-    if (!given.klass.empty()) resolved = resolve_style(given);
-    const Style &s = given.klass.empty() ? given : resolved;
-    size_op(wire::OpWidth, s.w);
-    size_op(wire::OpHeight, s.h);
-    if (s.min_w) f32_op(wire::OpMinW, s.min_w);
-    if (s.max_w) f32_op(wire::OpMaxW, s.max_w);
-    if (s.min_h) f32_op(wire::OpMinH, s.min_h);
-    if (s.max_h) f32_op(wire::OpMaxH, s.max_h);
-    if (s.pad.top || s.pad.right || s.pad.bottom || s.pad.left) {
-      u8(wire::OpPad);
-      f32(s.pad.top);
-      f32(s.pad.right);
-      f32(s.pad.bottom);
-      f32(s.pad.left);
-    }
-    if (s.gap) f32_op(wire::OpGap, s.gap);
-    if (s.align) u8_op(wire::OpAlign, s.align);
-    if (s.justify) u8_op(wire::OpJustify, s.justify);
-    if (s.absolute || s.fixed) {
-      u8(wire::OpPos);
-      f32(s.x);
-      f32(s.y);
-    }
-    if (s.fixed) u8(wire::OpFixed);
-    if (s.z) u32_op(wire::OpZ, static_cast<uint32_t>(s.z));
-    if (s.bg) u32_op(wire::OpBg, s.bg);
-    if (s.fg) u32_op(wire::OpFg, s.fg);
-    if (s.border) {
-      u8(wire::OpBorder);
-      u32(s.border);
-      f32(s.border_w ? s.border_w : 1);
-    }
-    if (s.radius) f32_op(wire::OpRadius, s.radius);
-    if (s.opacity) f32_op(wire::OpOpacity, s.opacity);
-    emit_gradient(s.gradient);
-    if (s.shadow.color) {
-      u8(wire::OpShadow);
-      u32(s.shadow.color);
-      f32(s.shadow.blur);
-      f32(s.shadow.y);
-    }
-    if (s.clip) u8(wire::OpClip);
-    if (s.scroll) u8(wire::OpScroll);
-    if (s.no_scrollbar) u8(wire::OpNoScrollbar);
-    if (s.scroll_to) f32_op(wire::OpScrollTo, *s.scroll_to);
-    if (s.hit) u8_op(wire::OpHit, 1);
-    if (s.select) u8(wire::OpSelect);
-    if (s.no_select) u8(wire::OpNoSelect);
-    if (s.ease && !reduce_motion_) f32_op(wire::OpEase, s.ease);
-    if (s.hover_bg) u32_op(wire::OpHoverBg, s.hover_bg);
-    if (s.drag) u8(wire::OpDrag);
-    if (s.wrap) u8(wire::OpWrap);
-    if (s.gestures) u8_op(wire::OpGestures, s.gestures);
-    if (s.role) u8_op(wire::OpRole, s.role);
-    if (!s.label.empty()) str(wire::OpLabel, s.label);
+    if (given.klass.empty()) gen::encode(buf_, given, reduce_motion_);
+    else gen::encode(buf_, resolve_style(given), reduce_motion_);
   }
 
   template <class F>

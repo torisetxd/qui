@@ -1,5 +1,6 @@
-# Single source of truth for the wire format and themes.
-# Run `go run ./tools/gen` after editing.
+# Single source of truth for the wire format, the style structs and themes.
+# Run `go run ./tools/gen` after editing; `go run ./tools/gen -check` fails
+# when a generated file is stale.
 
 version 28
 
@@ -53,74 +54,214 @@ role Menu 8
 role MenuItem 9
 role Button 10
 
-# payload after each op is documented in docs/wire.md
-op End 0
-op Open 1
-op Frame 2
-op Dir 3
-op Width 4
-op Height 5
-op MinW 6
-op MaxW 7
-op MinH 8
-op MaxH 9
-op Pad 10
-op Gap 11
-op Align 12
-op Justify 13
-op Pos 14
-op Bg 15
-op Fg 16
-op Border 17
-op Radius 18
-op Opacity 19
-op Clip 20
-op Scroll 21
-op Hit 22
-op Role 23
-op Label 24
-op Text 25
-op FontSize 26
-op Weight 27
-op Mono 28
-op Ellipsis 29
-op Virtual 30
-op Item 31
-op Src 32
-op Uniform 33
-op Fps 34
-op Placeholder 35
-op Multiline 36
-op Password 37
-op Focus 38
-op Z 39
-op Gradient 40
-op Shadow 41
-op Tracking 42
-op ScrollTo 43
-op Gestures 44
-op Palette 45
-op ImageData 46
-op Img 47
-op Fit 48
-op Span 49
-op Prepend 50
-op Jump 51
-op ImageFree 52
-op PassthroughNav 53
-op Select 54
-op Wrap 55
-op Value 56
-op SvgData 57
-op Bare 58
-op NoSelect 59
-op Ease 60
-op HoverBg 61
-op Glide 62
-op Drag 63
-op Fixed 64
-op NoScrollbar 65
-op ImageShared 66
+# op <Name> <code> [field:type ...] [+flag ...] [native=custom|skip] [web=custom|skip] ["doc"]
+#
+# Fields are the payload in order. Unless a backend is marked, both decoders
+# are generated: the engine stores each field in the node under its name
+# (src/node.gen.hpp) and web/qui.js under its camelCase name. `+flag` also sets
+# a bool field, `+flag@native` only in the engine. `custom` leaves the op to
+# hand-written code in src/engine.cpp or web/qui.js; `skip` reads and drops
+# the payload, for ops a backend ignores. Field types: u8 u16 u32 i32 u64 f32
+# bool (a u8) str (u32 length, then UTF-8) f32x4; `=v` sets the engine default.
+# Indented lines continue the doc.
+
+op End 0 native=custom web=custom "Closes the open node."
+op Open 1 kind:u8 id:u64 native=custom web=custom "Opens a node; its property ops, children and `End` follow."
+op Frame 2 version:u8 theme:u8 native=custom web=custom "Starts the stream."
+op Palette 45 count:u16 entries:token_rgba native=custom web=custom
+  "Optional, directly after `Frame`: `count` pairs of `token:u8 rgba:u32` that
+  override or add theme tokens for this frame. Ids 20 to 255 are free for apps
+  and show up on the web as `--qui-T<id>`."
+op ImageData 46 key:u64 w:u16 h:u16 pixels:rgba native=custom web=custom
+  "`w*h*4` bytes of straight RGBA. Sent once per key, directly after `Palette`,
+  and the engine keeps it."
+op ImageShared 66 key:u64 token:u64 native=custom web=skip
+  "Like `ImageData`, but the pixels were lent to the engine out of band under
+  `token` (`qui_stage_image`) and are shared rather than carried in the stream."
+op SvgData 57 key:u64 svg:str native=custom web=custom
+  "SVG text, sent once per key directly after `Palette` like `ImageData`, and
+  the engine keeps it. `Icon` nodes draw it fitted to their box in their `Fg`
+  (`Ink` when unset), using only the shapes' coverage."
+op ImageFree 52 key:u64 native=custom web=custom
+  "Directly after `Palette` like `ImageData`: forgets the image and its atlas
+  space."
+
+op Dir 3 dir:u8 "`Column` 0, `Row` 1 or `Stack` 2."
+op Width 4 w_mode:u8 w_val:f32 "A size: `Fit` 0, `Fill` 1 (the value is the weight), `Px` 2, `Pct` 3."
+op Height 5 h_mode:u8 h_val:f32 "Like `Width`."
+op MinW 6 min_w:f32
+op MaxW 7 max_w:f32
+op MinH 8 min_h:f32
+op MaxH 9 max_h:f32
+op Pad 10 pad:f32x4 "Top, right, bottom, left."
+op Gap 11 gap:f32
+op Align 12 align:u8 "Cross axis: `Start Center End Stretch`."
+op Justify 13 justify:u8 "Main axis: `Start Center End Between`; on text, the line alignment."
+op Pos 14 pos_x:f32 pos_y:f32 +has_pos "Places the box at x, y in its parent, out of the flow."
+op Fixed 64 +fixed +has_pos
+  "With `Pos`, the box is placed in window coordinates instead of its
+  parent's; `Fill` takes the window's size, and the parent's clip and scroll do
+  not apply."
+op Z 39 z:i32 "Paint and hit order among siblings; ties keep tree order."
+op Bg 15 bg:u32 "A color is `0xRRGGBBAA`; a theme token is `token << 24` with the low 24 bits clear."
+op Fg 16 fg:u32
+op Border 17 border:u32 border_w:f32
+op Radius 18 radius:f32
+op Opacity 19 opacity:f32=1
+op Gradient 40 gradient_from:u32 gradient_to:u32 gradient_angle:f32 +has_gradient
+  "CSS degrees; fills a box, or colors the glyphs of a `Text`."
+op Shadow 41 shadow:u32 shadow_blur:f32 shadow_y:f32 "Painted outside the box only."
+op Clip 20 +clip
+op Scroll 21 +scroll +clip@native "Scrolls vertically; needs a bounded height."
+op NoScrollbar 65 +no_scrollbar
+  "A `Scroll` box or `Virtual` list scrolls without drawing a scrollbar or
+  taking scrollbar drags. On the web it is `scrollbar-width: none`."
+op ScrollTo 43 scroll_to:f32 +has_scroll_to "Sets the scroll offset of a `Scroll` box this frame."
+op Hit 22 hit:u8 "Reports pointer input for the box."
+op Select 54 +select native=custom
+  "Starts a selection root, so a mouse selection that begins inside stays
+  inside. The frame root is one, so all text is selectable unless turned off."
+op NoSelect 59 +no_select native=custom
+  "No text selection in this subtree until a `Select` below. Boxes with role
+  `Button`, `Menu`, `MenuItem`, `Switch` or `Slider` behave as if they had it,
+  and it wins over `Select` on the same box."
+op Ease 60 ease:f32
+  "Milliseconds: changes to `Bg`, `Fg`, `Border`, `Radius`, `Opacity` and the
+  button hover tint animate (ease-out cubic) instead of jumping. State is kept
+  per node id; a node absent for a frame starts fresh. On the web it is a CSS
+  `transition`."
+op HoverBg 61 hover_bg:u32
+  "The background while the pointer is over this box or any hit inside it, in
+  place of a button's hover tint. On the web it is `:hover`."
+op Drag 63 +drag web=skip
+  "A press on this box, outside the hit boxes inside it, moves the window.
+  Native desktop only; it is for windows opened borderless
+  (`qui_set_borderless`)."
+op Wrap 55 +wrap "On a `Row`: flows children onto new lines."
+op Gestures 44 gestures:u8 "Mask of `PanX`, `PanY`, `Pinch` and `TouchOnly`."
+op Role 23 role:u8 native=custom
+  "On the web it picks the element. `Button` on a `Hit` box: takes focus,
+  clicks on Enter and Space, gets the hover and press tints like a `Button`
+  node, and is role=button on the web."
+op Label 24 label:str "The accessible name."
+op Value 56 value:f32 native=skip
+  "The state of a `Switch` (0 or 1) or `Slider` (0 to 1) box, for assistive
+  tech."
+
+op Text 25 text:str web=custom
+op Span 49 start:u32 end:u32 flags:u8 fg:u32 bg:u32 id:u64 image:u64 native=custom web=custom
+  "After `Text`. Styles a byte range; `id` non-zero makes it a hit target
+  reported under that id. `flags`: `Bold` 1, `Mono` 2, `Italic` 4, `Underline`
+  8, `Strike` 16, `HoverUnderline` 64 (underlines only while the span is
+  hovered or pressed), `Image` 32 (draws the loaded image `image` over the
+  span's placeholder text)."
+op FontSize 26 font_size:f32
+op Weight 27 weight:u8 "1 for bold."
+op Mono 28 +mono
+op Ellipsis 29 +ellipsis
+op Tracking 42 tracking:f32 "Extra advance per letter in logical px; turns ligatures off when nonzero."
+
+op Virtual 30 count:u32 est:f32 bottom:bool "Makes a `List` virtual: item count, estimated row height, and whether it starts at the bottom."
+op Item 31 item:u32 native=custom "The index of a list row."
+op Prepend 50 prepend:u32 web=skip
+  "On a `List`: items inserted at the front this frame; the engine shifts its
+  scroll anchor and cached heights by that count."
+op Jump 51 jump:u32 +has_jump web=skip "On a `List`: scrolls that item to the top on this frame only."
+op Glide 62 +glide web=skip
+  "With `Jump`: eases the item to the middle of the viewport over the next
+  frames instead, cutting to a screen away first when it is far; user
+  scrolling cancels it."
+
+op Src 32 src:str "Shader source."
+op Uniform 33 name:str8 count:u8 values:f32xN native=custom web=custom
+op Fps 34 fps:f32
+
+op Placeholder 35 placeholder:str
+op Multiline 36 multiline:u8 native=custom "1 for Enter inserting a newline, 2 for Enter submitting."
+op Password 37 +password
+op PassthroughNav 53 +passthrough_nav "Hands Up, Down and Tab to the app instead of the field."
+op Bare 58 +bare native=custom
+  "On an `Input` directly after `Open`: clears its default background and
+  border, so a focused field shows no accent border."
+op Focus 38 focus_mode:u8 native=custom "1 to focus on first appearance, 2 to focus now."
+
+op Img 47 image:u64 web=custom "The image an `Image` node shows, or the SVG an `Icon` node shows."
+op Fit 48 fit:u8 "`Cover` 0, `Contain` 1, `Stretch` 2, plus `Pixelated` 16 or `Bicubic` 32."
+
+# style <Struct> <field> <type> [Op] [go=Name] ["doc"]
+#
+# The fields of Style and TextStyle in C++ declaration order, which is public
+# API because designated initializers must follow it. Types: class key size
+# f32 edges align pos part i32 color border gradient shadow flag on optf32
+# gestures role string motion. `flag` sends the op alone, `on` sends it with a
+# 1, `pos` sends `Pos` with the following `x` and `y` parts when set or when
+# `fixed` is, `border` sends its color with the `<name>_w` part (1 when 0), and
+# `motion` is an f32 that `reduce_motion` drops. Classes fill fields left at
+# zero and OR the bools.
+
+style Style klass class go=Class "Class names registered with define_class (Go Ui.Class), separated by spaces."
+style Style w size Width
+style Style h size Height
+style Style min_w f32 MinW
+style Style max_w f32 MaxW
+style Style min_h f32 MinH
+style Style max_h f32 MaxH
+style Style pad edges Pad
+style Style gap f32 Gap
+style Style align align Align
+style Style justify align Justify
+style Style absolute pos Pos
+style Style x part
+style Style y part
+style Style z i32 Z
+style Style bg color Bg
+style Style fg color Fg
+style Style border border Border
+style Style border_w part
+style Style radius f32 Radius
+style Style opacity f32 Opacity
+style Style gradient gradient Gradient
+style Style shadow shadow Shadow
+style Style clip flag Clip
+style Style scroll flag Scroll
+style Style hit on Hit
+style Style scroll_to optf32 ScrollTo
+style Style gestures gestures Gestures
+style Style role role Role
+style Style label string Label
+style Style key key
+style Style select flag Select
+style Style wrap flag Wrap
+style Style no_select flag NoSelect
+  "Keeps the mouse from selecting text in this subtree; select on a descendant
+  turns it back on there."
+style Style ease motion Ease
+  "Animates changes to bg, fg, border, radius, opacity and the hover tint of
+  buttons over this many milliseconds."
+style Style hover_bg color HoverBg
+  "Replaces bg while the pointer is over the box or anything in it, without
+  waiting a frame."
+style Style drag flag Drag
+  "Moves the window when pressed outside the hit boxes inside it, as a title
+  bar does. Native desktop only; see set_borderless."
+style Style fixed flag Fixed
+  "Positions the box at x, y in window coordinates, as CSS position: fixed
+  does. Fill sizes take the window's size, and the parent's clip and scroll do
+  not apply."
+style Style no_scrollbar flag NoScrollbar
+  "Scrolls without drawing a scrollbar; the wheel, touch and keys still work."
+
+style TextStyle klass class go=Class "Class names registered with define_text_class (Go Ui.TextClass), separated by spaces."
+style TextStyle size f32 FontSize
+style TextStyle bold on Weight
+style TextStyle mono flag Mono
+style TextStyle ellipsis flag Ellipsis
+style TextStyle color color Fg
+style TextStyle w size Width
+style TextStyle align align Justify
+style TextStyle role role Role
+style TextStyle gradient gradient Gradient
+style TextStyle tracking f32 Tracking
 
 gesture PanX 1
 gesture PanY 2

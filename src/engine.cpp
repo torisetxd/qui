@@ -389,104 +389,36 @@ void Engine::decode(const uint8_t *wire, size_t len) {
     }
 
     Node &node = nodes[stack.back()];
+    if (decode_props(op, node, in)) continue;
     switch (op) {
-      case OpDir: node.dir = in.read<uint8_t>(); break;
-      case OpWidth:
-        node.w_mode = in.read<uint8_t>();
-        node.w_val = in.read<float>();
-        break;
-      case OpHeight:
-        node.h_mode = in.read<uint8_t>();
-        node.h_val = in.read<float>();
-        break;
-      case OpMinW: node.min_w = in.read<float>(); break;
-      case OpMaxW: node.max_w = in.read<float>(); break;
-      case OpMinH: node.min_h = in.read<float>(); break;
-      case OpMaxH: node.max_h = in.read<float>(); break;
-      case OpPad:
-        for (float &p : node.pad) p = in.read<float>();
-        break;
-      case OpGap: node.gap = in.read<float>(); break;
-      case OpAlign: node.align = in.read<uint8_t>(); break;
-      case OpJustify: node.justify = in.read<uint8_t>(); break;
-      case OpPos:
-        node.pos_x = in.read<float>();
-        node.pos_y = in.read<float>();
-        node.has_pos = true;
-        break;
-      case OpBg: node.bg = in.read<uint32_t>(); break;
-      case OpFg: node.fg = in.read<uint32_t>(); break;
-      case OpBorder:
-        node.border = in.read<uint32_t>();
-        node.border_w = in.read<float>();
-        break;
-      case OpRadius: node.radius = in.read<float>(); break;
-      case OpOpacity: node.opacity = in.read<float>(); break;
-      case OpClip: node.clip = true; break;
-      case OpSelect: node.select_root = stack.back(); break;
-      case OpNoSelect: node.select_root = -1; break;
-      case OpEase: node.ease = in.read<float>(); break;
-      case OpHoverBg: node.hover_bg = in.read<uint32_t>(); break;
-      case OpWrap: node.wrap = true; break;
-      case OpValue: in.read<float>(); break;
-      case OpScroll: node.scroll = node.clip = true; break;
-      case OpHit: node.hit = in.read<uint8_t>(); break;
       case OpRole:
         node.role = in.read<uint8_t>();
         if (node.role == RoleMenu) menu_open = true;
-        if (node.role == RoleButton || node.role == RoleMenu || node.role == RoleMenuItem || node.role == RoleSwitch || node.role == RoleSlider) node.select_root = -1;
+        if (node.role == RoleButton || node.role == RoleMenu || node.role == RoleMenuItem || node.role == RoleSwitch || node.role == RoleSlider) {
+          node.select_root = -1;
+          node.select_blocked = true;
+        }
         break;
-      case OpLabel: node.label = in.str(); break;
-      case OpText: node.text = in.str(); break;
-      case OpFontSize: node.font_size = in.read<float>(); break;
-      case OpWeight: node.weight = in.read<uint8_t>(); break;
-      case OpMono: node.mono = true; break;
-      case OpEllipsis: node.ellipsis = true; break;
-      case OpVirtual:
-        node.count = in.read<uint32_t>();
-        node.est = in.read<float>();
-        node.bottom = in.read<uint8_t>() != 0;
+      case OpSelect:
+        if (!node.select_blocked) node.select_root = stack.back();
+        break;
+      case OpNoSelect:
+        node.select_root = -1;
+        node.select_blocked = true;
         break;
       case OpItem: node.item = in.read<uint32_t>(); break;
-      case OpPrepend: node.prepend = in.read<uint32_t>(); break;
-      case OpJump: node.jump = in.read<uint32_t>(); node.has_jump = true; break;
-      case OpGlide: node.glide = true; break;
-      case OpDrag: node.drag = true; break;
-      case OpNoScrollbar: node.no_scrollbar = true; break;
-      case OpFixed:
-        node.fixed = true;
-        node.has_pos = true;
-        break;
-      case OpSrc: node.src = in.str(); break;
-      case OpFps: node.fps = in.read<float>(); break;
-      case OpPlaceholder: node.placeholder = in.str(); break;
       case OpMultiline:
         node.multiline = in.read<uint8_t>();
         node.align = Start;
         break;
-      case OpPassword: node.password = true; break;
       case OpBare:
         node.bg = 0;
         node.border = 0;
         break;
-      case OpPassthroughNav: node.passthrough_nav = true; break;
       case OpFocus:
         node.focus_mode = in.read<uint8_t>();
         if (node.focus_mode == 2 && node.kind != KindInput) focus_request = node.id;
         break;
-      case OpZ: node.z = in.read<int32_t>(); break;
-      case OpGradient:
-        node.gradient_from = in.read<uint32_t>();
-        node.gradient_to = in.read<uint32_t>();
-        node.gradient_angle = in.read<float>();
-        node.has_gradient = true;
-        break;
-      case OpShadow:
-        node.shadow = in.read<uint32_t>();
-        node.shadow_blur = in.read<float>();
-        node.shadow_y = in.read<float>();
-        break;
-      case OpTracking: node.tracking = in.read<float>(); break;
       case OpSpan: {
         SpanRef span;
         span.start = in.read<uint32_t>();
@@ -502,13 +434,6 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         spans.push_back(span);
         break;
       }
-      case OpImg: node.image = in.read<uint64_t>(); break;
-      case OpFit: node.fit = in.read<uint8_t>(); break;
-      case OpGestures: node.gestures = in.read<uint8_t>(); break;
-      case OpScrollTo:
-        node.scroll_to = in.read<float>();
-        node.has_scroll_to = true;
-        break;
       case OpUniform: {
         UniformRef uniform;
         uniform.name = in.bytes(in.read<uint8_t>());

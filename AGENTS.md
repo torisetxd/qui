@@ -38,15 +38,21 @@ Input results come back to the app on the next frame as a `Response`. The format
 
 ## Making changes
 
-To add a style property, op or node kind, touch these in order:
+`tools/gen/spec.txt` is the single source for the wire format. One `op` line
+declares an op's payload, the node fields it sets and its docs; one `style` line
+declares a `Style` or `TextStyle` field. `go run ./tools/gen` then writes:
 
-1. `tools/gen/spec.txt`: add it and bump `version`.
-2. Run `go run ./tools/gen`. Never hand-edit `wire_gen.go`, `src/wire.gen.hpp` or `web/wire.gen.js`.
-3. `qui.go` and `src/qui.hpp`: encode it. Struct field order in `src/qui.hpp` is public API, because C++ designated initializers must follow it.
-4. `src/engine.hpp` and `src/engine.cpp`: decode and paint it.
-5. `src/gl.cpp` and `src/cpu.cpp`: draw it.
-6. `web/qui.js`: apply it to the DOM.
-7. `docs/wire.md` and the field lists in `SKILL.md`.
+- the Go and C++ `Style`/`TextStyle` structs, their encoders and class merges (`style_gen.go`, `src/style.gen.inc`)
+- the engine's decoder into `NodeProps` (`src/node.gen.hpp`) and the browser's `decodeProps` (`web/wire.gen.js`)
+- constants (`wire_gen.go`, `src/wire.gen.hpp`), the op table in `docs/wire.md`, the field lists in `SKILL.md`, and `docs/cpp.md` from `src/qui.hpp`
+
+Never hand-edit those; `go run ./tools/gen -check` fails when one is stale. To add a style property or op:
+
+1. Add it to `tools/gen/spec.txt` and bump `version`. If decoding needs more than storing the payload, mark it `native=custom` or `web=custom` and add a case to the decode switch in `src/engine.cpp` or `web/qui.js`. Mark a backend that ignores it `skip`, which records the parity gap.
+2. Run `go run ./tools/gen`.
+3. Use the new node fields: layout, paint and damage in `src/engine.cpp`, drawing in `src/gl.cpp` and `src/cpu.cpp`, CSS in `web/qui.js`.
+
+New node kinds and `Ui` methods are still written by hand in `qui.go` and `src/qui.hpp`; run the generator afterwards to refresh `docs/cpp.md`.
 
 Rules that are easy to break:
 

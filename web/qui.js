@@ -1,4 +1,4 @@
-import { Align, Dir, Fit, Flag, Gesture, Key, Kind, Mod, Op, Role, Size, Themes, Tokens, Version } from "./wire.gen.js";
+import { Align, Dir, Fit, Flag, Gesture, Key, Kind, Mod, Op, Role, Size, Themes, Tokens, Version, decodeProps } from "./wire.gen.js";
 
 const HEADER = 64;
 const SLOT = 56;
@@ -173,65 +173,11 @@ function decode(bytes, length) {
       continue;
     }
     const node = stack[stack.length - 1];
+    if (decodeProps(op, node, r)) continue;
     switch (op) {
-      case Op.Dir: node.dir = r.u8(); break;
-      case Op.Width: node.wMode = r.u8(); node.wVal = r.f32(); break;
-      case Op.Height: node.hMode = r.u8(); node.hVal = r.f32(); break;
-      case Op.MinW: node.minW = r.f32(); break;
-      case Op.MaxW: node.maxW = r.f32(); break;
-      case Op.MinH: node.minH = r.f32(); break;
-      case Op.MaxH: node.maxH = r.f32(); break;
-      case Op.Pad: node.pad = [r.f32(), r.f32(), r.f32(), r.f32()]; break;
-      case Op.Gap: node.gap = r.f32(); break;
-      case Op.Align: node.align = r.u8(); break;
-      case Op.Justify: node.justify = r.u8(); break;
-      case Op.Pos: node.x = r.f32(); node.y = r.f32(); node.absolute = true; break;
-      case Op.Bg: node.bg = r.u32(); break;
-      case Op.Fg: node.fg = r.u32(); break;
-      case Op.Border: node.border = r.u32(); node.borderW = r.f32(); break;
-      case Op.Radius: node.radius = r.f32(); break;
-      case Op.Opacity: node.opacity = r.f32(); break;
-      case Op.Clip: node.clip = true; break;
-      case Op.Select: node.select = true; break;
-      case Op.NoSelect: node.noSelect = true; break;
-      case Op.Ease: node.ease = r.f32(); break;
-      case Op.HoverBg: node.hoverBg = r.u32(); break;
-      case Op.Wrap: node.wrap = true; break;
-      case Op.Value: node.value = r.f32(); break;
-      case Op.Scroll: node.scroll = true; break;
-      case Op.Hit: node.hit = r.u8(); break;
-      case Op.Role: node.role = r.u8(); break;
-      case Op.Label: node.label = r.str(); break;
       case Op.Text: { const n = r.u32(); node.textBuf = r.bytes; node.textAt = r.at; node.textLen = n; node.text = decoder.decode(r.bytes.subarray(r.at, r.at + n)); r.at += n; break; }
       case Op.Span: { const span = { start: r.u32(), end: r.u32(), flags: r.u8(), fg: r.u32(), bg: r.u32() }; const lo = r.u32(), hi = r.u32(); span.lo = lo; span.hi = hi; span.key = (hi & 0x1fffff) * 4294967296 + lo; { const ilo = r.u32(), ihi = r.u32(); if (span.flags & 32) span.image = `${ihi}:${ilo}`; } (node.spans ??= []).push(span); break; }
-      case Op.FontSize: node.fontSize = r.f32(); break;
-      case Op.Weight: node.weight = r.u8(); break;
-      case Op.Mono: node.mono = true; break;
-      case Op.Ellipsis: node.ellipsis = true; break;
-      case Op.Virtual: node.count = r.u32(); node.est = r.f32(); node.bottom = r.u8() !== 0; break;
-      case Op.Item: node.item = r.u32(); break;
-      case Op.Prepend: node.prepend = r.u32(); break;
-      case Op.Jump: r.u32(); break;
-      case Op.Glide: break;
-      case Op.Drag: break;
-      case Op.Fixed: node.fixed = true; node.absolute = true; break;
-      case Op.NoScrollbar: node.noScrollbar = true; break;
-      case Op.Src: node.src = r.str(); break;
-      case Op.Fps: node.fps = r.f32(); break;
-      case Op.Placeholder: node.placeholder = r.str(); break;
-      case Op.Multiline: node.multiline = r.u8(); break;
-      case Op.Password: node.password = true; break;
-      case Op.Bare: node.bare = true; break;
-      case Op.PassthroughNav: node.passthroughNav = true; break;
-      case Op.Focus: node.focus = r.u8(); break;
-      case Op.Z: node.z = r.u32() | 0; break;
-      case Op.Gradient: node.gradient = { from: r.u32(), to: r.u32(), angle: r.f32() }; break;
-      case Op.Shadow: node.shadow = r.u32(); node.shadowBlur = r.f32(); node.shadowY = r.f32(); break;
-      case Op.Tracking: node.tracking = r.f32(); break;
-      case Op.ScrollTo: node.scrollTo = r.f32(); break;
-      case Op.Gestures: node.gestures = r.u8(); break;
       case Op.Img: { const lo = r.u32(), hi = r.u32(); node.image = `${hi}:${lo}`; break; }
-      case Op.Fit: node.fit = r.u8(); break;
       case Op.Uniform: {
         const nameLength = r.u8();
         const name = decoder.decode(r.bytes.subarray(r.at, r.at + nameLength));
@@ -275,7 +221,7 @@ function definiteHeight(node, parent) {
   const hMode = node.hMode ?? Size.Fit;
   if (hMode === Size.Px) return true;
   if (hMode === Size.Fit || parent.kind === Kind.List) return false;
-  if (node.absolute) return true;
+  if (node.hasPos) return true;
   if (hMode === Size.Fill && parent.dir === Dir.Column && parent.scroll) return false;
   return !!parent.hDef;
 }
@@ -296,8 +242,8 @@ function css(node, parent) {
   s += sizeCss(wMode, node.wVal, "width") + sizeCss(hMode, node.hVal, "height");
   if (node.kind === Kind.Input && wMode === Size.Fit) s += "width:200px;";
 
-  if (node.absolute) {
-    s += `position:${node.fixed ? "fixed" : "absolute"};left:${node.x}px;top:${node.y}px;`;
+  if (node.hasPos) {
+    s += `position:${node.fixed ? "fixed" : "absolute"};left:${node.posX}px;top:${node.posY}px;`;
     if ((node.kind === Kind.Box || node.kind === Kind.Shader) && !node.hit && !node.scroll && !node.gestures) s += "pointer-events:none;";
     if (wMode === Size.Fill) s += "width:100%;";
     if (hMode === Size.Fill) s += "height:100%;";
@@ -324,9 +270,8 @@ function css(node, parent) {
   if (node.pad) s += `padding:${node.pad[0]}px ${node.pad[1]}px ${node.pad[2]}px ${node.pad[3]}px;`;
   if (node.bg) s += `background:${color(node.bg)};`;
   if (node.fg) s += `color:${color(node.fg)};`;
-  if (node.gradient) {
-    const { from, to, angle } = node.gradient;
-    const image = `linear-gradient(${angle}deg,${color(from)},${color(to)})`;
+  if (node.hasGradient) {
+    const image = `linear-gradient(${node.gradientAngle}deg,${color(node.gradientFrom)},${color(node.gradientTo)})`;
     if (node.kind === Kind.Text) {
       s += `background-image:${image};-webkit-background-clip:text;background-clip:text;color:transparent;`;
       if (node.tracking < 0) s += `padding-right:${-node.tracking}px;margin-right:${node.tracking}px;`;
@@ -1091,14 +1036,14 @@ class Patcher {
       this.menuSeen = true;
       this.menuReturn ??= document.activeElement;
     }
-    if (node.focus && document.activeElement !== el && (node.focus === 2 || !el.__autofocused)) {
+    if (node.focusMode && document.activeElement !== el && (node.focusMode === 2 || !el.__autofocused)) {
       el.__autofocused = true;
       el.focus();
     }
     if (node.hit || node.gestures || node.kind === Kind.Button || node.kind === Kind.List || node.kind === Kind.Input) this.entryFor(node, el);
     if (node.kind === Kind.List) this.patchList(el, node);
     else this.reconcile(el, node, null, null);
-    if (node.scrollTo !== undefined) el.scrollTop = node.scrollTo;
+    if (node.hasScrollTo) el.scrollTop = node.scrollTo;
   }
 
   patchShader(el, node) {

@@ -30,61 +30,8 @@ func RGBA(r, g, b, a uint8) Color {
 
 func RGB(r, g, b uint8) Color { return RGBA(r, g, b, 255) }
 
-type Style struct {
-	W, H                            Size
-	MinW, MaxW, MinH, MaxH          float32
-	Pad                             Edges
-	Gap                             float32
-	Align, Justify                  Align
-	Absolute                        bool
-	X, Y                            float32
-	Z                               int32
-	Bg, Fg, Border                  Color
-	BorderW, Radius                 float32
-	Opacity                         float32
-	Gradient                        Gradient
-	Shadow                          BoxShadow
-	Clip, Scroll, Hit, Select, Wrap bool
-	ScrollTo                        *float32
-	Gestures                        Gestures
-	Role                            Role
-	Label, Key                      string
-	// Class names registered with Ui.Class, separated by spaces.
-	Class string
-	// NoSelect keeps the mouse from selecting text in this subtree; Select
-	// on a descendant turns it back on there.
-	NoSelect bool
-	// Ease animates changes to Bg, Fg, Border, Radius, Opacity and the hover
-	// tint of buttons over this many milliseconds. Keyed nodes keep their
-	// animation across frames.
-	Ease float32
-	// HoverBg replaces Bg while the pointer is over the box or anything in
-	// it, without waiting a frame.
-	HoverBg Color
-	// Drag makes the box move the window when pressed outside the hit boxes
-	// inside it, as a title bar does. Native desktop only; see SetBorderless.
-	Drag bool
-	// Fixed positions the box at X, Y in window coordinates, as CSS
-	// position: fixed does. Fill sizes take the window's size, and the parent's
-	// clip and scroll do not apply.
-	Fixed bool
-	// NoScrollbar scrolls without drawing a scrollbar; the wheel, touch and
-	// keys still work.
-	NoScrollbar bool
-}
-
-type TextStyle struct {
-	Size                 float32
-	Bold, Mono, Ellipsis bool
-	Color                Color
-	W                    Size
-	Align                Align
-	Role                 Role
-	Gradient             Gradient
-	Tracking             float32
-	// Class names registered with Ui.TextClass, separated by spaces.
-	Class string
-}
+// Style and TextStyle, with their encoders and class merges, are generated
+// from tools/gen/spec.txt into style_gen.go.
 
 // Gradient is a two-color linear gradient. Angle is in CSS degrees: 0 runs
 // bottom to top, 90 left to right, 180 top to bottom. On text it runs across
@@ -284,32 +231,7 @@ func (u *Ui) text(value string, spans []Span, t TextStyle) (links []linkSpan) {
 	id := u.open(kindText, "")
 	u.str(opText, value)
 	links = u.emitSpans(id, value, spans)
-	if t.Size != 0 {
-		u.f32Op(opFontSize, t.Size)
-	}
-	if t.Bold {
-		u.u8Op(opWeight, 1)
-	}
-	if t.Mono {
-		u.u8(opMono)
-	}
-	if t.Ellipsis {
-		u.u8(opEllipsis)
-	}
-	if t.Color != 0 {
-		u.u32Op(opFg, uint32(t.Color))
-	}
-	u.sizeOp(opWidth, t.W)
-	if t.Align != 0 {
-		u.u8Op(opJustify, uint8(t.Align))
-	}
-	if t.Role != 0 {
-		u.u8Op(opRole, uint8(t.Role))
-	}
-	u.emitGradient(t.Gradient)
-	if t.Tracking != 0 {
-		u.f32Op(opTracking, t.Tracking)
-	}
+	u.encodeTextStyle(&t)
 	u.u8(opEnd)
 	return links
 }
@@ -558,132 +480,12 @@ func (u *Ui) open(kind uint8, key string) uint64 {
 	return id
 }
 
-func (u *Ui) emitGradient(g Gradient) {
-	if g.From == 0 && g.To == 0 {
-		return
-	}
-	u.u8(opGradient)
-	u.u32(uint32(g.From))
-	u.u32(uint32(g.To))
-	u.f32(g.Angle)
-}
-
 func (u *Ui) emitStyle(s *Style) {
 	if s.Class != "" {
 		resolved := u.resolveStyle(*s)
 		s = &resolved
 	}
-	u.sizeOp(opWidth, s.W)
-	u.sizeOp(opHeight, s.H)
-	if s.MinW != 0 {
-		u.f32Op(opMinW, s.MinW)
-	}
-	if s.MaxW != 0 {
-		u.f32Op(opMaxW, s.MaxW)
-	}
-	if s.MinH != 0 {
-		u.f32Op(opMinH, s.MinH)
-	}
-	if s.MaxH != 0 {
-		u.f32Op(opMaxH, s.MaxH)
-	}
-	if s.Pad != (Edges{}) {
-		u.u8(opPad)
-		u.f32(s.Pad.Top)
-		u.f32(s.Pad.Right)
-		u.f32(s.Pad.Bottom)
-		u.f32(s.Pad.Left)
-	}
-	if s.Gap != 0 {
-		u.f32Op(opGap, s.Gap)
-	}
-	if s.Align != 0 {
-		u.u8Op(opAlign, uint8(s.Align))
-	}
-	if s.Justify != 0 {
-		u.u8Op(opJustify, uint8(s.Justify))
-	}
-	if s.Absolute || s.Fixed {
-		u.u8(opPos)
-		u.f32(s.X)
-		u.f32(s.Y)
-	}
-	if s.Fixed {
-		u.u8(opFixed)
-	}
-	if s.NoScrollbar {
-		u.u8(opNoScrollbar)
-	}
-	if s.Z != 0 {
-		u.u32Op(opZ, uint32(s.Z))
-	}
-	if s.Bg != 0 {
-		u.u32Op(opBg, uint32(s.Bg))
-	}
-	if s.Fg != 0 {
-		u.u32Op(opFg, uint32(s.Fg))
-	}
-	if s.Border != 0 {
-		width := s.BorderW
-		if width == 0 {
-			width = 1
-		}
-		u.u8(opBorder)
-		u.u32(uint32(s.Border))
-		u.f32(width)
-	}
-	if s.Radius != 0 {
-		u.f32Op(opRadius, s.Radius)
-	}
-	if s.Opacity != 0 {
-		u.f32Op(opOpacity, s.Opacity)
-	}
-	u.emitGradient(s.Gradient)
-	if s.Shadow.Color != 0 {
-		u.u8(opShadow)
-		u.u32(uint32(s.Shadow.Color))
-		u.f32(s.Shadow.Blur)
-		u.f32(s.Shadow.Y)
-	}
-	if s.Clip {
-		u.u8(opClip)
-	}
-	if s.Scroll {
-		u.u8(opScroll)
-	}
-	if s.ScrollTo != nil {
-		u.f32Op(opScrollTo, *s.ScrollTo)
-	}
-	if s.Hit {
-		u.u8Op(opHit, 1)
-	}
-	if s.Select {
-		u.u8(opSelect)
-	}
-	if s.NoSelect {
-		u.u8(opNoSelect)
-	}
-	if s.Ease != 0 && !u.reduceMotion {
-		u.f32Op(opEase, s.Ease)
-	}
-	if s.HoverBg != 0 {
-		u.u32Op(opHoverBg, uint32(s.HoverBg))
-	}
-	if s.Drag {
-		u.u8(opDrag)
-	}
-	if s.Wrap {
-		u.u8(opWrap)
-	}
-	if s.Gestures != 0 {
-		u.u8Op(opGestures, uint8(s.Gestures))
-	}
-	if s.Role != 0 {
-		u.u8Op(opRole, uint8(s.Role))
-	}
-	if s.Label != "" {
-		u.str(opLabel, s.Label)
-	}
+	u.encodeStyle(s)
 }
 
 func (u *Ui) container(dir uint8, s *Style, body func()) Response {

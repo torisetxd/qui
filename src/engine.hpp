@@ -1,6 +1,7 @@
 #pragma once
 
 #include "font_manager.hpp"
+#include "node.gen.hpp"
 #include "svg.hpp"
 #include "system_fonts.hpp"
 #include "text_shaper.hpp"
@@ -65,37 +66,20 @@ struct UniformRef {
   uint8_t n = 0;
 };
 
-struct Node {
+// The decoded props come from NodeProps, generated from tools/gen/spec.txt;
+// these are the fields the custom ops and layout fill in.
+struct Node : NodeProps {
   uint64_t id = 0;
   int32_t parent = -1, first_child = -1, last_child = -1, next_sibling = -1;
-  uint8_t kind = 0, dir = 0, align = 0, justify = 0, role = 0, hit = 0, weight = 0;
-  uint8_t w_mode = 0, h_mode = 0;
-  uint8_t multiline = 0, focus_mode = 0, gestures = 0;
-  bool mono = false, clip = false, scroll = false, ellipsis = false, has_pos = false, bottom = false;
-  bool password = false, passthrough_nav = false, placeholder_shown = false, has_gradient = false, has_scroll_to = false;
-  bool wrap = false;
-  float w_val = 0, h_val = 0, min_w = 0, max_w = 0, min_h = 0, max_h = 0;
-  float pad[4] = {};
-  float gap = 0, pos_x = 0, pos_y = 0;
-  int32_t z = 0;
-  uint32_t bg = 0, fg = 0, border = 0;
-  float border_w = 0, radius = 0, opacity = 1, font_size = 0;
-  uint32_t gradient_from = 0, gradient_to = 0, shadow = 0;
-  float gradient_angle = 0, shadow_blur = 0, shadow_y = 0, tracking = 0, scroll_to = 0;
-  uint32_t jump = 0;
-  bool has_jump = false, glide = false, drag = false, fixed = false, no_scrollbar = false;
-  std::string_view text, label, src, placeholder;
-  uint32_t count = 0;
-  float est = 0;
+  uint8_t kind = 0, role = 0, multiline = 0, focus_mode = 0;
+  bool placeholder_shown = false;
+  // Set by NoSelect or a button-like role, which win over Select on the same
+  // node whatever their order.
+  bool select_blocked = false;
   int64_t item = -1;
-  float fps = 0;
   uint32_t uniform_first = 0, uniform_count = 0;
-  uint64_t image = 0;
-  uint8_t fit = 0;
-  uint32_t span_first = 0, span_count = 0, prepend = 0;
+  uint32_t span_first = 0, span_count = 0;
   int32_t select_root = -1;
-  float ease = 0;
-  uint32_t hover_bg = 0;
 
   float iw = 0, ih = 0, x = 0, y = 0, w = 0, h = 0;
   uint32_t line_first = 0, line_count = 0;
