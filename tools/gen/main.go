@@ -1124,15 +1124,15 @@ func main() {
 		return string(out)
 	}
 	files := map[string]string{
-		"src/wire.gen.hpp": cpp(s),
+		"src/wire.gen.hpp":  cpp(s),
 		"src/style.gen.inc": cppStyle(s),
-		"src/node.gen.hpp": nodeCpp(s),
-		"wire_gen.go":      gofmt(goSource(s)),
-		"style_gen.go":     gofmt(goStyle(s)),
-		"web/wire.gen.js":  js(s),
-		"docs/wire.md":     replaceRegion(read("docs/wire.md"), "ops", wireDoc(s)),
-		"SKILL.md":         replaceRegion(read("SKILL.md"), "fields", skillDoc(s)),
-		"docs/cpp.md":      cppDoc(s, read("src/qui.hpp")),
+		"src/node.gen.hpp":  nodeCpp(s),
+		"wire_gen.go":       gofmt(goSource(s)),
+		"style_gen.go":      gofmt(goStyle(s)),
+		"web/wire.gen.js":   js(s),
+		"docs/wire.md":      replaceRegion(read("docs/wire.md"), "ops", wireDoc(s)),
+		"SKILL.md":          replaceRegion(read("SKILL.md"), "fields", skillDoc(s)),
+		"docs/cpp.md":       cppDoc(s, read("src/qui.hpp")),
 	}
 	names := make([]string, 0, len(files))
 	for name := range files {
