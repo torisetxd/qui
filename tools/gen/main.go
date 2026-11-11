@@ -892,15 +892,15 @@ func wireDoc(s spec) string {
 func skillDoc(s spec) string {
 	var b strings.Builder
 	for i, strct := range s.structs {
-		var names []string
+		var cpp, goNames []string
 		for _, sf := range s.fields(strct) {
-			names = append(names, sf.goName)
+			cpp = append(cpp, sf.name)
+			goNames = append(goNames, sf.goName)
 		}
-		if i == 0 {
-			fmt.Fprintf(&b, "`%s` fields, in declaration order (C++ names are the snake_case of these, and `Class` is `klass`): `%s`\n", strct, strings.Join(names, " "))
-		} else {
-			fmt.Fprintf(&b, "\n`%s` fields, in order: `%s`\n", strct, strings.Join(names, " "))
+		if i > 0 {
+			b.WriteString("\n")
 		}
+		fmt.Fprintf(&b, "`%s` in the order C++ designated initializers need: `%s`. Go: `%s`.\n", strct, strings.Join(cpp, " "), strings.Join(goNames, " "))
 	}
 	return b.String()
 }

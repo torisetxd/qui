@@ -1,11 +1,13 @@
 ---
 name: qui
-description: Build, change or verify UIs with qui, the in-house immediate-mode framework (Go or C++; native through OpenGL ES or a CPU rasterizer, browser through real DOM elements and Go wasm), and its qui/sys module for Linux app install, background services and screen or microphone capture. Use when a project imports github.com/torisetxd/qui or includes qui.hpp, or when asked to add a screen, widget, list or shader to a qui app, or to install a native app or capture the screen or mic with it.
+description: Build, change or verify UIs with qui, the in-house immediate-mode framework (Go or C++; native through OpenGL ES or a CPU rasterizer, browser through real DOM elements and Go wasm), and its qui/sys module for Linux app install, background services and screen or microphone capture. Use when a project imports github.com/torisetxd/qui or includes qui.hpp (litecord does), when adding or fixing a screen, widget, list or shader in a qui app, when checking a qui app's UI without opening a window (screenshots, an outline of the screen, scripted clicks on elements by key or text), or when installing a native app or capturing the screen or mic with it.
 ---
 
 # qui
 
 Immediate-mode API over retained internals. Rebuild the whole UI every frame from your own state: no widget objects, callbacks or bindings. `Frame()` blocks until something changes, so an idle app uses no CPU.
+
+Signatures: `docs/cpp.md` in the qui repo lists every C++ declaration without bodies, and `go doc github.com/torisetxd/qui` covers Go. Look calls up there rather than reading `qui.hpp`; the engine sources are never needed to use the API.
 
 ## Minimal app
 
@@ -66,8 +68,46 @@ int main() {
 - **Identity is parent id + `Key`, or sibling index without one.** Buttons key on their label, so same-label siblings need `Key`. Give `Key` to scrollers, lists and `Hit` boxes whose earlier siblings come and go, or their state moves to another node.
 - **Boxes report nothing without `Hit: true`.** Buttons and lists always report.
 - **Zero means unset** in `Style` and `TextStyle`: `Opacity: 0` is opaque, `Bg: 0` paints nothing.
-- **C++ designated initializers must follow declaration order** (the field list below).
 - **Wrap the root in `W: Fill(), H: Fill()`**; the default is fit-to-content.
+- **Check the result offscreen** (next section) after every UI change, rather than assuming the layout is right.
+
+## Check every change without a window
+
+Never launch a native qui app in the user's session to look at it: it opens a window and takes focus. These variables run it offscreen and exit, with no display needed:
+
+```sh
+QUI_TREE=- ./app                                                   # outline of the screen, with @keys
+QUI_DRIVE='click:"Payments";wait:@pay-tabs' QUI_SHOT=/tmp/a.png ./app   # act, check, capture
+echo $?                                                            # 1: a step timed out, 2: a malformed step
+```
+
+The loop: print the outline, take selectors from it, drive, then assert with `wait:`, `gone:` or `find:` and look at the shot for anything visual. Give a `Key` to whatever you will drive or check; text works too but changes with the copy. An outline line reads `button @send "Send" hit 1180,840 80x32`: kind or role, `@key`, text, `label=`, `hit`, `focused`, then the visible rect in logical pixels.
+
+| Variable | Effect |
+| --- | --- |
+| `QUI_TREE=-` | Print the outline of what is on screen. Another path writes it to a file, and a `.json` path writes every node with `key label role shown hidden hit focused caret` |
+| `QUI_SHOT=a.png` | Write a screenshot |
+| `QUI_DRIVE='click:@send;type:hi;key:enter'` | Scripted input, `;` separated (below) |
+| `QUI_SIZE=390x844`, `QUI_DPR=2` | Viewport size (that one is a phone), pixel ratio |
+| `QUI_BACKEND=gl` | The GPU renderer, also offscreen; the default CPU one paints shaders as their `Bg` |
+| `QUI_FRAMES=n` | Minimum frames before exiting; raise it if an animation has not settled |
+| `QUI_WAIT_MS=10000` | How long a step waits for its selector |
+| `QUI_WIRE=a.bin` | Dump the frame's wire bytes |
+
+A point is `x,y` in logical pixels or a selector, which aims at the center of the node's visible part: `@key` (the `Key` or id string the node was opened with), `"exact text"` or `~text` (any case), matched against text, label or placeholder. Parts after a space must be inside the one before (`@sidebar "Settings"`), and `[n]` keeps the nth match from 0. A selector step waits until its node is on screen and not covered by another hit box; a coordinate step does not wait, so start a coordinate-only script with `wait:20`.
+
+Steps: `click:P`, `dblclick:P`, `rclick:P`, `down:P`, `up:P`, `move:P`, `drag:P,P`, `wheel:P,amount` (negative scrolls down), `type:text`, `key:ctrl+shift+left`, `ime:text`, `dragover:P`, `drop:P,path`; touch: `tap:P`, `longpress:P`, `swipe:P,P,ms`, `pinch:P,spread0,spread1`, `touch:P`, `touchmove:P`, `touchup:P`. Checks: `wait:frames`, `wait:sel` (until on screen), `gone:sel`, `find:sel` (prints matches), `shot:path`, `tree:path` (or `-`).
+
+A malformed step exits 2 before the first frame. A step that times out exits 1 after printing why (no match, off screen, or covered by which node) and the similar nodes on screen, and writes `QUI_SHOT` and `QUI_TREE` first. A node that exists but is clipped needs a `wheel:` over its scroller first.
+
+## C++ pitfalls
+
+- **Field order.** Designated initializers must follow the order listed under [Layout](#layout). `designator order for field` or `cannot convert '<brace-enclosed initializer list>' to 'qui::Style'` means a field is out of order or not on that struct: `Style` has `bg` and `fg` and no text fields, `TextStyle` has `size`, `bold` and `color`. When unsure, set a few fields and assign the rest: `Style s{.w = fill(), .pad = 12}; s.hover_bg = Hover;`. Clang accepts any order in apps that link the `qui` CMake target; gcc never does, so keep the order.
+- **Views must outlive the call.** `key`, `label`, `klass` and every text or key argument are `std::string_view`. A temporary built inside the call is fine, `ui.row({.key = "row/" + id}, ...)`, but `s.key = "row/" + id;` dangles by the next statement, so keep the string in a variable.
+- **Presets are values.** Extend one by copying it: `TextStyle t = H2; t.color = Accent;`.
+- **Small fields are `uint8_t`** (`align justify role gestures`, `fit`): `cond ? Center : 0` is an `int`, which a braced initializer rejects (an error on clang, a narrowing warning on gcc); write `cond ? Center : Start`.
+- **Padding** is `.pad = 16`, `{vertical, horizontal}` (CSS order, the reverse of Go's `XY(x, y)`) or `{top, right, bottom, left}`. Sizes are `px(40)`, `fill()`, `fill(2)`, `pct(50)`.
+- **Names** are the snake_case of Go's, except `Class` is `klass`, `ui.Class` and `ui.TextClass` are `define_class` and `define_text_class`, `Switch` is `toggle_switch`, `RGB`/`RGBA` is `rgba(r, g, b, a = 255)`, `ScrollTo: &v` is `.scroll_to = v` (an `optional`) and `ListOptions.JumpTo` is `.jump_to`.
 
 ## Layout
 
@@ -88,9 +128,9 @@ A strict flexbox subset that maps directly to CSS.
 - `ScrollTo: &offset` sets a `Scroll` box's offset for that frame. Animate it yourself for smooth anchors, and stop sending it when done so the user can scroll. A zero-height `Hit` box inside the scroller reports its viewport-relative `Y` even offscreen, which gives you scroll position, reveal-on-scroll and scroll-spy. Web scrolling does not wake the loop, so run a ticker calling `ui.Wake()` for those.
 
 <!-- gen:fields -->
-`Style` fields, in declaration order (C++ names are the snake_case of these, and `Class` is `klass`): `Class W H MinW MaxW MinH MaxH Pad Gap Align Justify Absolute X Y Z Bg Fg Border BorderW Radius Opacity Gradient Shadow Clip Scroll Hit ScrollTo Gestures Role Label Key Select Wrap NoSelect Ease HoverBg Drag Fixed NoScrollbar`
+`Style` in the order C++ designated initializers need: `klass w h min_w max_w min_h max_h pad gap align justify absolute x y z bg fg border border_w radius opacity gradient shadow clip scroll hit scroll_to gestures role label key select wrap no_select ease hover_bg drag fixed no_scrollbar`. Go: `Class W H MinW MaxW MinH MaxH Pad Gap Align Justify Absolute X Y Z Bg Fg Border BorderW Radius Opacity Gradient Shadow Clip Scroll Hit ScrollTo Gestures Role Label Key Select Wrap NoSelect Ease HoverBg Drag Fixed NoScrollbar`.
 
-`TextStyle` fields, in order: `Class Size Bold Mono Ellipsis Color W Align Role Gradient Tracking`
+`TextStyle` in the order C++ designated initializers need: `klass size bold mono ellipsis color w align role gradient tracking`. Go: `Class Size Bold Mono Ellipsis Color W Align Role Gradient Tracking`.
 <!-- /gen:fields -->
 Presets: `Body H1 H2 Small Code`.
 
@@ -119,32 +159,16 @@ Context menus: keep a `qui.Menu` in app state, call `a.menu.Show(ui.PointerX(), 
 ## Text input and keys
 
 ```go
-package main
-
-import "github.com/torisetxd/qui"
-
-func main() {
-	ui := qui.Open("Chat", 480, 320)
-	defer ui.Close()
-	var draft, last string
-	for ui.Frame() {
-		if ui.KeyPressed('k', qui.ModCtrl) {
-			draft = ""
-		}
-		ui.Column(qui.Style{W: qui.Fill(), H: qui.Fill(), Pad: qui.All(16), Gap: 8}, func() {
-			ui.Text(last)
-			field := ui.Input("draft", &draft, qui.InputOptions{
-				Style:        qui.Style{W: qui.Fill(), MaxH: 120},
-				Placeholder:  "Message",
-				Multiline:    true,
-				EnterSubmits: true,
-				Autofocus:    true,
-			})
-			if field.Submitted {
-				last, draft = draft, ""
-			}
-		})
-	}
+if ui.KeyPressed('k', qui.ModCtrl) {
+	draft = ""
+}
+field := ui.Input("draft", &draft, qui.InputOptions{
+	Style:       qui.Style{W: qui.Fill(), MaxH: 120},
+	Placeholder: "Message", Multiline: true, EnterSubmits: true, Autofocus: true,
+})
+if field.Submitted {
+	send(draft)
+	draft = ""
 }
 ```
 
@@ -157,23 +181,9 @@ Enter submits a single-line field. In a multiline field Enter adds a newline and
 ## Virtual list
 
 ```go
-package main
-
-import (
-	"strconv"
-
-	"github.com/torisetxd/qui"
-)
-
-func main() {
-	ui := qui.Open("List", 480, 640)
-	defer ui.Close()
-	for ui.Frame() {
-		ui.List("rows", 100000, 34, qui.ListOptions{Style: qui.Style{W: qui.Fill(), H: qui.Fill()}}, func(i int) {
-			ui.Text("Row "+strconv.Itoa(i), qui.TextStyle{W: qui.Fill()})
-		})
-	}
-}
+ui.List("rows", len(rows), 34, qui.ListOptions{Style: qui.Style{W: qui.Fill(), H: qui.Fill()}}, func(i int) {
+	ui.Text(rows[i], qui.TextStyle{W: qui.Fill()})
+})
 ```
 
 Arguments are key, row count, estimated row height, options, row body. `JumpTo` scrolls an item to the top for one frame; with `Glide: true` it eases the item to the middle instead, and a wheel or drag cancels it (native only). The body runs only for visible rows and heights may vary. To load older items on scroll, insert them at the front of your data and set `ListOptions.Prepend` to how many you inserted that frame (C++ `.prepend`), so the rows on screen stay put; it is native only. `Response.First` tells you when row 0 is on screen. The list needs a bounded height. `Bottom: true` starts at the end and stays pinned there, and a short list sits at the bottom, for chat logs.
@@ -181,27 +191,17 @@ Arguments are key, row count, estimated row height, options, row body. `JumpTo` 
 ## Shaders
 
 ```go
-package main
-
-import "github.com/torisetxd/qui"
-
 const glow = `uniform float u_speed;
 vec4 shade(vec2 uv) {
   return vec4(uv, 0.5 + 0.5 * sin(u_time * u_speed), 1.0);
 }`
 
-func main() {
-	ui := qui.Open("Shader", 480, 320)
-	defer ui.Close()
-	for ui.Frame() {
-		ui.Shader(qui.ShaderOptions{
-			Src:      glow,
-			Style:    qui.Style{W: qui.Fill(), H: qui.Fill(), Bg: qui.Raised},
-			Fps:      24,
-			Uniforms: []qui.Uniform{{Name: "u_speed", Values: []float32{1}}},
-		})
-	}
-}
+ui.Shader(qui.ShaderOptions{
+	Src:      glow,
+	Style:    qui.Style{W: qui.Fill(), H: qui.Fill(), Bg: qui.Raised},
+	Fps:      24,
+	Uniforms: []qui.Uniform{{Name: "u_speed", Values: []float32{1}}},
+})
 ```
 
 `Src` is GLSL ES 3.00 without `#version` or `precision`, and must define `vec4 shade(vec2 uv)`, with uv in 0..1 from the top-left. `u_time` and `u_resolution` are already declared; declare your own uniforms. `Fps` repaints without running your loop. The CPU backend does not run shaders and paints `Bg` instead, so always set one. A shader that fails to compile also paints `Bg`, and `ui.Shader` returns the compiler log in `Response.Error`, with line numbers relative to `Src`. Declare lookup tables as plain `float A[64]=float[64](...)`, not `const`, which renders as zeros on the Android emulator.
@@ -331,37 +331,18 @@ On Linux, `SetAppID` must equal the app's `.desktop` basename or the compositor 
 `github.com/torisetxd/qui/sys` does not link the UI, so daemons can use it. It needs `gio-2.0 gio-unix-2.0 libpipewire-0.3`. C++ uses `sys/qui_sys.h` and `sys/qui_sys.hpp`, and links the `qui_sys` target.
 
 ```go
-package main
-
-import (
-	"errors"
-	"log"
-	"time"
-
-	"github.com/torisetxd/qui/sys"
-)
-
-func main() {
-	const id = "dev.example.recorder"
-	app := sys.App{ID: id, Name: "Recorder", Service: &sys.Service{Args: "--background", NeedsPipeWire: true}}
-	if err := sys.Install(app); err != nil {
-		log.Fatal(err)
+const id = "dev.example.recorder"
+err := sys.Install(sys.App{ID: id, Name: "Recorder", Service: &sys.Service{Args: "--background", NeedsPipeWire: true}})
+screen, err := sys.OpenScreen(sys.ScreenOptions{AppID: id, FPS: 30, ShowCursor: true})
+defer screen.Close()
+for {
+	frame, err := screen.Next(0, time.Second)
+	if errors.Is(err, sys.ErrTimeout) {
+		continue
+	} else if err != nil {
+		return
 	}
-	screen, err := sys.OpenScreen(sys.ScreenOptions{AppID: id, FPS: 30, ShowCursor: true})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer screen.Close()
-	for {
-		frame, err := screen.Next(0, time.Second)
-		if errors.Is(err, sys.ErrTimeout) {
-			continue
-		}
-		if err != nil {
-			return
-		}
-		log.Println(frame.Width, frame.Height, frame.Sequence)
-	}
+	use(frame.Width, frame.Height, frame.Sequence)
 }
 ```
 
@@ -372,29 +353,8 @@ func main() {
 - `sys.OpenAudio(sys.AudioOptions{})` captures the microphone, `System: true` the default output, `Target` a PipeWire node. `Read(buf, timeout)` fills interleaved `float32` and returns frames and the monotonic time of the first.
 - Also: `Uninstall StartService StopService RestartService EnableService DisableService ServiceActive Register`.
 
-## Verify without a window
-
-Any of these variables runs the app offscreen and exits; no window opens and no display is needed. Check the output rather than assuming the UI is right. The CPU renderer skips shaders unless `QUI_BACKEND=gl`. Frames run faster than real time, so raise `QUI_FRAMES` if an animation has not settled.
-
-| Variable | Effect |
-| --- | --- |
-| `QUI_TREE=-` | Print an outline of what is on screen, one line per named node: `button @send "Send" hit 1180,840 80x32` (kind, `@key`, text, logical rect). Another path writes it to a file, a `.json` path every node with `key label role shown hidden hit focused caret` |
-| `QUI_SHOT=a.png` | Write a screenshot |
-| `QUI_WIRE=a.bin` | Dump the frame's wire bytes |
-| `QUI_DRIVE='click:@send;type:hi;key:enter'` | Scripted input, `;` separated (below) |
-| `QUI_SIZE=1100x700`, `QUI_DPR=2` | Viewport size, pixel ratio |
-| `QUI_BACKEND=cpu` or `gl` | Force a renderer |
-| `QUI_FRAMES=n` | Minimum frames before exiting |
-| `QUI_WAIT_MS=10000` | How long a step waits for its selector |
-
-Where a step takes a point, give `x,y` in logical pixels or a selector, which aims at the center of the node's visible part: `@key` (the `Key` or id string the node was opened with), `"exact text"` or `~text` (any case), matched against text, label or placeholder. Parts after a space must be inside the one before (`@sidebar "Settings"`), and `[n]` keeps the nth match from 0. A step waits until its node is on screen and not covered by another hit box, and fails after `QUI_WAIT_MS`.
-
-Steps: `click:P`, `dblclick:P`, `rclick:P`, `down:P`, `up:P`, `move:P`, `drag:P,P`, `wheel:P,amount` (negative scrolls down), `type:text`, `key:ctrl+shift+left`, `ime:text`, `dragover:P`, `drop:P,path`; touch: `tap:P`, `longpress:P`, `swipe:P,P,ms`, `pinch:P,spread0,spread1`, `touch:P`, `touchmove:P`, `touchup:P`. Checks: `wait:frames`, `wait:sel` (until on screen), `gone:sel`, `find:sel` (prints matches), `shot:path`, `tree:path` (or `-`).
-
-A malformed step exits 2 before the first frame. A step that times out exits 1 after printing why (no match, off screen, or covered by which node) with similar nodes, and writes `QUI_SHOT` and `QUI_TREE` first.
-
 ## Not available yet
 
 Do not assume these exist: animated images, right-to-left paragraphs (mixed text orders correctly, but the base direction is always left-to-right), global shortcuts. On the web, list spacers use the estimate, so the scrollbar can shift when real heights differ.
 
-The C++ API without bodies is in `docs/cpp.md` (Go: `go doc`). To add a node kind, op or token, edit `tools/gen/spec.txt` and run `go run ./tools/gen`; `docs/wire.md` documents the format.
+To change qui itself (a node kind, op, style field or token), read its `AGENTS.md`: most of it is one line in `tools/gen/spec.txt` and `go run ./tools/gen`.

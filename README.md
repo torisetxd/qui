@@ -163,7 +163,7 @@ Both sides read the same stream, so a new language only needs an encoder. Input 
 
 ## For agents
 
-[`SKILL.md`](SKILL.md) covers the whole API in about 4,000 tokens: the rules that cause most mistakes, every style field, build commands and what doesn't exist yet. To install it as a skill, copy it to `~/.claude/skills/qui/SKILL.md` or your tool's equivalent.
+[`SKILL.md`](SKILL.md) covers the whole API in about 4,600 words: the rules that cause most mistakes, C++ pitfalls, how to check a UI offscreen, every style field, build commands and what doesn't exist yet. To install it as a skill, copy it to `~/.claude/skills/qui/SKILL.md` or your tool's equivalent.
 
 Check your work without opening a window. These run from the repo root and exit on their own:
 

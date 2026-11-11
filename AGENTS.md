@@ -61,7 +61,7 @@ Rules that are easy to break:
 - **Parity:** layout changes in `engine.cpp` usually need matching CSS in `web/qui.js`. Native and web should look the same.
 - **Real DOM:** web output must stay real elements for accessibility. Never replace it with a canvas.
 - **Dependencies:** library packages use only the standard library. `esbuild` and `brotli` are for `cmd/qui` only.
-- **Skill size:** public API changes must update `SKILL.md`, and it should stay at a few thousand tokens (about 3,900 now).
+- **Skill size:** public API changes must update `SKILL.md`, and it should stay compact (about 4,600 words now).
 
 ## Verifying
 
