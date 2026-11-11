@@ -470,7 +470,7 @@ class Ui {
     if (style.key.empty()) style.key = label;
     if (style.w.mode == wire::SizeFit) style.w = px(32);
     if (style.h.mode == wire::SizeFit) style.h = style.w.mode == wire::SizePx ? style.w : px(32);
-    if (!style.radius) style.radius = 6;
+    if (style.radius == 0) style.radius = 6;
     style.align = style.justify = Center;
     style.hit = true;
     style.role = RoleButton;
@@ -501,8 +501,8 @@ class Ui {
       panel.hit = true;
       panel.select = true;
       if (panel.key.empty()) panel.key = panel_key;
-      if (const float w = width() - 2 * kModalMargin; w > 0 && (!panel.max_w || panel.max_w > w)) panel.max_w = w;
-      if (const float h = height() - 2 * kModalMargin; h > 0 && (!panel.max_h || panel.max_h > h)) panel.max_h = h;
+      if (const float w = width() - 2 * kModalMargin; w > 0 && (panel.max_w == 0 || panel.max_w > w)) panel.max_w = w;
+      if (const float h = height() - 2 * kModalMargin; h > 0 && (panel.max_h == 0 || panel.max_h > h)) panel.max_h = h;
       panel.opacity = pop;
       column(panel, body);
     });
@@ -544,12 +544,13 @@ class Ui {
       if (scrim.clicked || scrim.drag_end) dismissed = true;
       column({.w = fill(), .h = fill(), .pad = 8, .align = Center, .justify = End, .absolute = true, .y = (1 - pop) * kSheetSlide}, [&] {
         if (panel.klass.empty()) sheet_defaults(panel);
-        if (const float h = height() - kSheetTop; !panel.max_h || panel.max_h > h) panel.max_h = h;
+        if (const float h = height() - kSheetTop; panel.max_h == 0 || panel.max_h > h) panel.max_h = h;
         panel.hit = true;
         panel.select = true;
         panel.opacity = pop;
         panel.gestures |= GesturePanY;
-        if (panel.key.empty()) panel.key = k + "/panel";
+        const std::string panel_key = k + "/panel";
+        if (panel.key.empty()) panel.key = panel_key;
         if (column(panel, body).swipe == Swipe::Down) dismissed = true;
       });
     });
@@ -558,11 +559,11 @@ class Ui {
 
   static void sheet_defaults(Style &s) {
     if (s.w.mode == wire::SizeFit && s.w.value == 0) s.w = fill();
-    if (!s.max_w) s.max_w = 560;
+    if (s.max_w == 0) s.max_w = 560;
     if (!s.bg) s.bg = Raised;
     if (!s.border) s.border = Line;
-    if (!s.border_w) s.border_w = 1;
-    if (!s.radius) s.radius = 16;
+    if (s.border_w == 0) s.border_w = 1;
+    if (s.radius == 0) s.radius = 16;
   }
 
   // Shows `text` beside the pointer while `show` is true, usually a response's hovered.
@@ -582,8 +583,8 @@ class Ui {
     }
     if (!style.bg) style.bg = Raised;
     if (!style.border) style.border = Line;
-    if (!style.radius) style.radius = 6;
-    if (!style.pad.top && !style.pad.right && !style.pad.bottom && !style.pad.left) style.pad = {4, 8};
+    if (style.radius == 0) style.radius = 6;
+    if (style.pad.top == 0 && style.pad.right == 0 && style.pad.bottom == 0 && style.pad.left == 0) style.pad = {4, 8};
     style.max_w = 280;
     style.key = "qui/tooltip";
     column(wrap, [&] { column(style, [&] { text_impl(text, {}, {.size = 12, .color = Ink}); }); });
@@ -649,14 +650,14 @@ class Ui {
     if (as_sheet) {
       s.w = fill();
       if (s.klass.empty()) sheet_defaults(s);
-      if (s.klass.empty() && !s.pad.top && !s.pad.right && !s.pad.bottom && !s.pad.left) s.pad = 8;
+      if (s.klass.empty() && s.pad.top == 0 && s.pad.right == 0 && s.pad.bottom == 0 && s.pad.left == 0) s.pad = 8;
     } else if (s.klass.empty()) {
       if (s.w.mode == wire::SizeFit && s.w.value == 0) s.w = px(224);
       if (!s.bg) s.bg = Raised;
       if (!s.border) s.border = Line;
-      if (!s.border_w) s.border_w = 1;
-      if (!s.radius) s.radius = 8;
-      if (!s.pad.top && !s.pad.right && !s.pad.bottom && !s.pad.left) s.pad = 6;
+      if (s.border_w == 0) s.border_w = 1;
+      if (s.radius == 0) s.radius = 8;
+      if (s.pad.top == 0 && s.pad.right == 0 && s.pad.bottom == 0 && s.pad.left == 0) s.pad = 6;
       if (!s.shadow.color) s.shadow = {Shadow, 16, 4};
     }
     s.role = RoleMenu;
@@ -769,7 +770,7 @@ class Ui {
     emit_style(options.style);
     str(wire::OpText, value);
     if (!options.placeholder.empty()) str(wire::OpPlaceholder, options.placeholder);
-    if (options.size) f32_op(wire::OpFontSize, options.size);
+    if (options.size != 0) f32_op(wire::OpFontSize, options.size);
     if (options.mono) u8(wire::OpMono);
     if (options.multiline) u8_op(wire::OpMultiline, options.enter_submits ? 2 : 1);
     if (options.password) u8(wire::OpPassword);
@@ -819,7 +820,7 @@ class Ui {
     result.first = result.count = 0;
     emit_style(options.style);
     str(wire::OpSrc, options.src);
-    if (options.fps) f32_op(wire::OpFps, options.fps);
+    if (options.fps != 0) f32_op(wire::OpFps, options.fps);
     for (const Uniform &uniform : options.uniforms) {
       u8(wire::OpUniform);
       u8(static_cast<uint8_t>(uniform.name.size()));
