@@ -3,6 +3,9 @@
 #include "drive.hpp"
 #include "engine.hpp"
 #include "qui_c.h"
+#if defined(QUI_HAS_BUILD_ID)
+#include "qui_build_id.h"
+#endif
 
 #include <SDL3/SDL.h>
 #if defined(__GLIBC__)
@@ -594,6 +597,9 @@ struct qui_app {
     headless = !shot_path.empty() || !tree_path.empty() || !wire_path.empty() || !steps.empty();
     parse_drive(steps);
     if (const std::string ms = env("QUI_WAIT_MS"); !ms.empty()) wait_limit = std::atof(ms.c_str()) / 1000.0;
+#if defined(QUI_BUILD_ID)
+    if (headless) std::fprintf(stderr, "qui: build %s\n", QUI_BUILD_ID);
+#endif
     engine.async_images = !headless;
     engine.on_async = [] {
       SDL_Event event{};

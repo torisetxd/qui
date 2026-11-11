@@ -17,6 +17,23 @@ target_compile_features(qui PUBLIC cxx_std_20)
 target_include_directories(qui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(qui PRIVATE PkgConfig::QUI_DEPS)
 add_library(qui::qui ALIAS qui)
+# Apps fill Style with designated initializers; clang can accept them out of
+# declaration order, which gcc never does.
+target_compile_options(qui INTERFACE $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-reorder-init-list>)
+
+# Offscreen runs print the qui commit they were built from, so a stale
+# checkout or build cache shows up in the first line of output.
+find_package(Git QUIET)
+if(GIT_FOUND)
+  set(QUI_BUILD_ID_DIR ${CMAKE_CURRENT_BINARY_DIR}/build_id)
+  add_custom_target(qui_build_id
+    COMMAND ${CMAKE_COMMAND} -DGIT=${GIT_EXECUTABLE} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${QUI_BUILD_ID_DIR}/qui_build_id.h -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_id.cmake
+    BYPRODUCTS ${QUI_BUILD_ID_DIR}/qui_build_id.h
+    VERBATIM)
+  add_dependencies(qui qui_build_id)
+  target_include_directories(qui PRIVATE ${QUI_BUILD_ID_DIR})
+  target_compile_definitions(qui PRIVATE QUI_HAS_BUILD_ID)
+endif()
 
 if(QUI_BUILD_SYS AND NOT WIN32 AND NOT ANDROID)
   pkg_check_modules(QUI_SYS_DEPS IMPORTED_TARGET gio-2.0 gio-unix-2.0 libpipewire-0.3)
