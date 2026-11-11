@@ -316,6 +316,9 @@ void Engine::apply_input_view(Node &node, const InputState &state) {
 void Engine::sync_input(Node &node, int index) {
   const auto [it, fresh] = inputs.try_emplace(node.id);
   InputState &state = it->second;
+  // State outlives a hidden field until prune(), so autofocus keys off the
+  // field reappearing rather than its state being new.
+  const bool appeared = fresh || state.frame + 1 != frame_number;
   state.id = node.id;
   state.frame = frame_number;
   state.node = index;
@@ -325,7 +328,7 @@ void Engine::sync_input(Node &node, int index) {
   state.passthrough_nav = node.passthrough_nav;
   if (state.placeholder != node.placeholder) state.placeholder = node.placeholder;
   if (fresh || node.text != state.seen) state.assign(node.text);
-  if (node.focus_mode == 2 || (fresh && node.focus_mode == 1)) focus_request = node.id;
+  if (node.focus_mode == 2 || (appeared && node.focus_mode == 1)) focus_request = node.id;
   state.rebuild_display();
   apply_input_view(node, state);
 }

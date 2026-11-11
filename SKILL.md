@@ -145,7 +145,7 @@ func main() {
 }
 ```
 
-`Input` takes a stable key and a pointer to your string, which it updates when `Changed` is true. Assigning to the string yourself replaces the field and moves the caret to the end. Options: `Style Placeholder Size Mono Multiline EnterSubmits Password Autofocus Focus PassthroughNav Bare` (`Focus` takes focus on every frame it is true; `Bare` drops the field's background, border and focus accent so it can sit inside your own box, which can show focus from `Response.Focused`); C++ `input(key, value, {.style, .placeholder, .size, .mono, .multiline, .enter_submits, .password, .autofocus, .focus, .passthrough_nav, .bare})`.
+`Input` takes a stable key and a pointer to your string, which it updates when `Changed` is true. Assigning to the string yourself replaces the field and moves the caret to the end. Options: `Style Placeholder Size Mono Multiline EnterSubmits Password Autofocus Focus PassthroughNav Bare` (`Autofocus` takes focus each time the field appears; `Focus` takes focus on every frame it is true; `Bare` drops the field's background, border and focus accent so it can sit inside your own box, which can show focus from `Response.Focused`); C++ `input(key, value, {.style, .placeholder, .size, .mono, .multiline, .enter_submits, .password, .autofocus, .focus, .passthrough_nav, .bare})`.
 
 Enter submits a single-line field. In a multiline field Enter adds a newline and Ctrl+Enter submits, unless `EnterSubmits` is set, where Enter submits and Shift+Enter adds a newline. Multiline fields grow with their text up to `MaxH`, then scroll. Native fields handle caret movement, selection, clipboard, undo, IME composition and Linux primary selection; the web uses real `<input>` and `<textarea>`.
 
