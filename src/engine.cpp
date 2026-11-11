@@ -1912,10 +1912,19 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     const float view_w = static_cast<float>(box_w) / scale, view_h = static_cast<float>(box_h) / scale;
     crop = {(sw - view_w) / 2, (sh - view_h) / 2, (sw + view_w) / 2, (sh + view_h) / 2};
   }
+  const int shown_w = dw, shown_h = dh;
+  constexpr int kMaxSide = static_cast<int>(FontManager::max_rgba_side());
+  if (dw > kMaxSide || dh > kMaxSide) {
+    const float shrink = std::min(static_cast<float>(kMaxSide) / static_cast<float>(dw), static_cast<float>(kMaxSide) / static_cast<float>(dh));
+    dw = std::clamp(static_cast<int>(static_cast<float>(dw) * shrink), 1, kMaxSide);
+    dh = std::clamp(static_cast<int>(static_cast<float>(dh) * shrink), 1, kMaxSide);
+  }
 
   constexpr uint64_t kSyncPixels = 32 * 32;
   ImageRegion &region = image_regions[cache_key];
   region.last_used = frame_number;
+  region.shown_w = shown_w;
+  region.shown_h = shown_h;
   if (async_images && static_cast<uint64_t>(img.w) * img.h > kSyncPixels) {
     if (!region.in_flight) {
       if (!resampler_) resampler_ = std::make_unique<Resampler>(on_async);
@@ -1998,11 +2007,15 @@ void Engine::paint_image(const Node &node, float x0, float y0, float w, float h,
   const int box_h = static_cast<int>(h - std::round((node.pad[0] + node.pad[2]) * dpr));
   const ImageRegion &region = image_region(node, box_w, box_h);
   if (!region.ok) return;
-  const float dx = inner_x + static_cast<float>(box_w - region.w) / 2, dy = inner_y + static_cast<float>(box_h - region.h) / 2;
+  const int shown_w = region.shown_w > 0 ? region.shown_w : region.w, shown_h = region.shown_h > 0 ? region.shown_h : region.h;
+  const bool stretched = shown_w != region.w || shown_h != region.h;
+  const float dx = inner_x + static_cast<float>(box_w - shown_w) / 2, dy = inner_y + static_cast<float>(box_h - shown_h) / 2;
   const float page_w = static_cast<float>(fonts.page_width(region.region.page)), page_h = static_cast<float>(fonts.page_height(region.region.page));
   const auto tint = static_cast<uint32_t>(std::clamp(alpha, 0.f, 1.f) * 255.f + 0.5f);
-  const Instance instance{std::round(dx), std::round(dy), static_cast<float>(region.w), static_cast<float>(region.h),
-                          std::round(region.region.u0 * page_w), std::round(region.region.v0 * page_h), 0, 0,
+  // A stretched color glyph carries the size of its stored pixels in u1, v1.
+  const Instance instance{std::round(dx), std::round(dy), static_cast<float>(shown_w), static_cast<float>(shown_h),
+                          std::round(region.region.u0 * page_w), std::round(region.region.v0 * page_h),
+                          stretched ? static_cast<float>(region.w) : 0.f, stretched ? static_cast<float>(region.h) : 0.f,
                           0x00ffffffu | (tint << 24), InstColorGlyph};
   damage_image(region, instance);
   const RoundClip outer = round_clip_;

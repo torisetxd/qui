@@ -310,6 +310,23 @@ class Cpu final : public CpuBackend {
     const Premul from = unpack(inst.rgba), to = horizontal || vertical ? unpack_end(inst) : from;
     const uint32_t solid_src = premultiply(inst.rgba, 255);
 
+    if (color && inst.u1 > 0 && inst.v1 > 0) {
+      // A picture stored smaller than it is shown: sample the nearest texel.
+      const int sw = static_cast<int>(inst.u1), sh = static_cast<int>(inst.v1);
+      for (int y = r.y; y < r.y + r.h; ++y) {
+        const int sy = std::min(sh - 1, static_cast<int>((static_cast<float>(y - y0) + 0.5f) * static_cast<float>(sh) / inst.h));
+        const uint8_t *row = page.pixels.data() + static_cast<size_t>(ay + sy) * page.width * 4;
+        uint32_t *dst = pixels_.data() + static_cast<size_t>(y) * width_ + r.x;
+        for (int x = 0; x < r.w; ++x) {
+          const int sx = std::min(sw - 1, static_cast<int>((static_cast<float>(r.x + x - x0) + 0.5f) * static_cast<float>(sw) / inst.w));
+          const uint8_t *src = row + static_cast<size_t>(ax + sx) * 4;
+          if (src[3] == 0) continue;
+          dst[x] = over(mul(src[0], tint_alpha) | (mul(src[1], tint_alpha) << 8) | (mul(src[2], tint_alpha) << 16) | (mul(src[3], tint_alpha) << 24), dst[x]);
+        }
+      }
+      return;
+    }
+
     for (int y = r.y; y < r.y + r.h; ++y) {
       const uint8_t *src = page.pixels.data() + (static_cast<size_t>(ay + y - y0) * page.width + static_cast<size_t>(ax + r.x - x0)) * 4;
       uint32_t *dst = pixels_.data() + static_cast<size_t>(y) * width_ + r.x;

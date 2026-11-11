@@ -131,6 +131,9 @@ class FontManager {
   uint32_t page_height(uint32_t page) const { return pages_[page].height; }
   uint32_t atlas_width() const { return kDefaultAtlasSize; }
   uint32_t atlas_height() const { return kDefaultAtlasSize; }
+  // The longest side allocate_rgba can place: a page less its padding and the
+  // one-pixel border its shelves start after.
+  static constexpr uint32_t max_rgba_side() { return kMaxAtlasSize - 2 * kAtlasPadding - 1; }
 
   uint64_t glyph_rasterizations() const { return glyph_rasterizations_; }
   uint64_t glyph_cache_hits() const { return glyph_cache_hits_; }

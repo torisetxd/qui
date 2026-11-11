@@ -348,6 +348,9 @@ class Engine {
   struct ImageRegion {
     AtlasRegion region;
     int w = 0, h = 0;
+    // The size to paint at. Larger than w and h when the box needs more pixels
+    // than an atlas page holds, so the stored copy is stretched back up.
+    int shown_w = 0, shown_h = 0;
     uint32_t alloc_w = 0, alloc_h = 0;
     bool ok = false, in_flight = false;
     uint64_t source = 0, version = 0, last_used = 0, written = 0;

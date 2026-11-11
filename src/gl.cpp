@@ -179,6 +179,19 @@ void main() {
     out_color = color * cover * clip_cover();
     return;
   }
+  if ((v_flags & color_glyph) != 0u && v_end.x > 0.0) {
+    // A picture stored smaller than it is shown: filter its texels back up.
+    vec2 p = v_local * v_end / v_size - 0.5;
+    ivec2 last = max(ivec2(round(v_end)), ivec2(1)) - ivec2(1);
+    ivec2 base = ivec2(v_params);
+    ivec2 i0 = ivec2(floor(p));
+    vec2 f = p - vec2(i0);
+    ivec2 a = clamp(i0, ivec2(0), last), b = clamp(i0 + ivec2(1), ivec2(0), last);
+    vec4 top = mix(texelFetch(u_atlas, base + a, 0), texelFetch(u_atlas, base + ivec2(b.x, a.y), 0), f.x);
+    vec4 bottom = mix(texelFetch(u_atlas, base + ivec2(a.x, b.y), 0), texelFetch(u_atlas, base + b, 0), f.x);
+    out_color = mix(top, bottom, f.y) * v_color.a * clip_cover();
+    return;
+  }
   ivec2 glyph_size = max(ivec2(round(v_size)), ivec2(1));
   ivec2 local = clamp(ivec2(floor(v_local)), ivec2(0), glyph_size - ivec2(1));
   vec4 texel = texelFetch(u_atlas, ivec2(v_params) + local, 0);
