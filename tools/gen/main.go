@@ -949,6 +949,7 @@ func stripBodies(src string) string {
 		}
 		return len(src) - 1
 	}
+	parens := 0
 	for i := 0; i < len(src); i++ {
 		c := src[i]
 		switch {
@@ -959,6 +960,20 @@ func stripBodies(src string) string {
 			continue
 		case strings.HasPrefix(src[i:], "//") || strings.HasPrefix(src[i:], "/*"):
 			end := skipComment(i)
+			out.WriteString(src[i : end+1])
+			i = end
+			continue
+		case c == '(' || c == ')':
+			if c == '(' {
+				parens++
+			} else {
+				parens--
+			}
+			out.WriteByte(c)
+			continue
+		case c == '{' && parens > 0:
+			// A braced default argument, such as `Style style = {}`.
+			end := matching(i)
 			out.WriteString(src[i : end+1])
 			i = end
 			continue

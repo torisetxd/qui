@@ -356,54 +356,18 @@ class Ui {
   // Draws a loaded picture. With no w and h it takes the image's pixel size; with
   // only a width it keeps the aspect ratio. `radius` clips it, so a square with
   // radius = size / 2 is a circle.
-  Response image(std::string_view key, Style style = {}, uint8_t fit = wire::FitCover) {
-    const uint64_t id = open(wire::KindImage, style.key);
-    u8(wire::OpImg);
-    u64(mix(0, key.data(), key.size()));
-    if (fit != wire::FitCover) u8_op(wire::OpFit, fit);
-    emit_style(style);
-    u8(wire::OpEnd);
-    return lookup(id);
-  }
+  Response image(std::string_view key, Style style = {}, uint8_t fit = wire::FitCover);
 
   // Draws an SVG fitted inside w by h, 20px square unless set, in fg (Ink when
   // unset). With a label it is an image for assistive tech; without one it is
   // decorative.
-  Response icon(const Svg &svg, Style style = {}) {
-    send_svg(svg);
-    if (!style.klass.empty()) style = resolve_style(style);
-    if (style.w.mode == wire::SizeFit && style.h.mode == wire::SizeFit) style.w = style.h = px(kIconSize);
-    else if (style.h.mode == wire::SizeFit && style.w.mode == wire::SizePx) style.h = style.w;
-    if (!style.label.empty() && !style.role) style.role = RoleImage;
-    const uint64_t id = open(wire::KindIcon, style.key);
-    u8(wire::OpImg);
-    u64(svg.id);
-    emit_style(style);
-    u8(wire::OpEnd);
-    return lookup(id);
-  }
+  Response icon(const Svg &svg, Style style = {});
 
   // A button showing only an icon: 32px square with the icon centered at 20px
   // unless w and h say otherwise. `label` names it for assistive tech and keys
   // it unless style.key is set. fg colors the icon; left unset it is Muted, and
   // Ink while hovered or focused.
-  Response icon_button(const Svg &svg, std::string_view label, Style style = {}) {
-    if (!style.klass.empty()) style = resolve_style(style);
-    if (style.key.empty()) style.key = label;
-    if (style.w.mode == wire::SizeFit) style.w = px(32);
-    if (style.h.mode == wire::SizeFit) style.h = style.w.mode == wire::SizePx ? style.w : px(32);
-    if (!style.radius) style.radius = 6;
-    style.align = style.justify = Center;
-    style.hit = true;
-    style.role = RoleButton;
-    style.label = label;
-    Color fg = style.fg;
-    if (!fg);
-    style.fg = 0;
-    float size = kIconSize;
-    if (style.w.mode == wire::SizePx && style.w.value < kIconSize + 8) size = std::max(style.w.value - 8, 8.f);
-    return row(style, [&] { icon(svg, {.w = px(size), .h = px(size), .fg = fg, .ease = style.ease}); });
-  }
+  Response icon_button(const Svg &svg, std::string_view label, Style style = {});
 
   // Overlays float above the window. Call them from the root container, after the
   // content they cover. modal and popup return true when the user clicked outside
@@ -425,67 +389,25 @@ class Ui {
   static void sheet_defaults(Style &s);
 
   // Shows `text` beside the pointer while `show` is true, usually a response's hovered.
-  void tooltip(bool show, std::string_view text, Style style = {}) {
-    if (!show || text.empty()) return;
-    constexpr float wrap_w = 280, wrap_h = 160;
-    Style wrap{.w = px(wrap_w), .h = px(wrap_h), .z = kOverlayZ + 1, .key = "qui/tooltip/wrap", .fixed = true};
-    wrap.x = pointer_x() + 12;
-    wrap.y = pointer_y() + 16;
-    if (wrap.x + wrap_w > width());
-    if (wrap.y + wrap_h > height());
-    if (!style.bg) style.bg = Raised;
-    if (!style.border) style.border = Line;
-    if (!style.radius) style.radius = 6;
-    if (!style.pad.top && !style.pad.right && !style.pad.bottom && !style.pad.left) style.pad = {4, 8};
-    style.max_w = 280;
-    style.key = "qui/tooltip";
-    column(wrap, [&] { column(style, [&] { text_impl(text, {}, {.size = 12, .color = Ink}); }); });
-  }
+  void tooltip(bool show, std::string_view text, Style style = {});
 
-  Response button(std::string_view label, Style style = {}) {
-    if (style.key.empty()) style.key = label;
-    const uint64_t id = open(wire::KindButton, style.key);
-    emit_style(style);
-    str(wire::OpText, label);
-    u8(wire::OpEnd);
-    return lookup(id);
-  }
+  Response button(std::string_view label, Style style = {});
 
   // An on/off switch. Returns true when it was toggled this frame, by a click or
   // by Enter or Space while it has focus. `label` names it for assistive tech.
-  bool toggle_switch(std::string_view key, bool on, std::string_view label = {}) {
-    const float value = on ? 1.f : 0.f;
-    return stack({.w = px(38), .h = px(22), .bg = on ? Accent : Active, .radius = 11, .hit = true, .role = RoleSwitch, .label = label, .key = key}, [&] {
-             f32_op(wire::OpValue, value);
-             column({.w = px(16), .h = px(16), .absolute = true, .x = on ? 19.f : 3.f, .y = 3, .bg = Strong, .radius = 8}, [] {});
-           })
-        .clicked;
-  }
+  bool toggle_switch(std::string_view key, bool on, std::string_view label = {});
 
   // A horizontal slider for a value from 0 to 1; returns the new value. Pressing
   // or dragging sets it; with focus, the arrow keys step it by 5% and Home and
   // End jump to the ends.
-  float slider(std::string_view key, float value, Size w, std::string_view label = {}) {
-    constexpr float thumb = 14, step = 0.05f;
-    const auto clamp01 = [](float v);;
-    value = clamp01(value);
-    const Response r = row({.w = w, .h = px(20), .align = Center, .hit = true, .gestures = GesturePanX | GestureTouchOnly, .role = RoleSlider, .label = label, .key = key}, [&] {
-      f32_op(wire::OpValue, value);
-      column({.w = fill(value), .h = px(6), .bg = Accent, .radius = 3}, [] {});
-      column({.w = px(thumb), .h = px(thumb), .bg = Strong, .radius = thumb / 2}, [] {});
-      column({.w = fill(1 - value), .h = px(6), .bg = Active, .radius = 3}, [] {});
-    });
-    if ((r.pressed || r.panning || r.clicked) && r.w > thumb) value = clamp01((pointer_x() - r.x - thumb / 2) / (r.w - thumb));
-    if (r.focused);
-    return value;
-  }
+  float slider(std::string_view key, float value, Size w, std::string_view label = {});
 
   // Draws an open menu and returns the index of the chosen item, or -1. It closes
   // itself on a choice, a press outside it and Escape. The arrow keys, Home and
   // End move through the items, Enter and Space choose, and focus returns to
   // where it was when the menu closes. Without a klass, unset panel fields get
   // the defaults. A header body, when given, is drawn above the rows.
-  int menu(Menu &m, std::span<const MenuItem> items, Style s = {}) { return menu(m, items, s, nullptr); }
+  int menu(Menu &m, std::span<const MenuItem> items, Style s = {});
 
   template <class F>
   int menu(Menu &m, std::span<const MenuItem> items, Style s, F &&header);
@@ -493,25 +415,7 @@ class Ui {
   template <class F>
   Response list(std::string_view key, uint32_t count, float estimate, const ListOptions &options, F &&row_body);
 
-  Response input(std::string_view key, std::string &value, const InputOptions &options = {}) {
-    const uint64_t id = open(wire::KindInput, key);
-    Response result = lookup(id);
-    if (result.changed) value.assign(reinterpret_cast<const char *>(res_) + header_u32(40) + result.first, result.count);
-    result.first = result.count = 0;
-    if (options.bare) u8(wire::OpBare);
-    emit_style(options.style);
-    str(wire::OpText, value);
-    if (!options.placeholder.empty()) str(wire::OpPlaceholder, options.placeholder);
-    if (options.size) f32_op(wire::OpFontSize, options.size);
-    if (options.mono) u8(wire::OpMono);
-    if (options.multiline) u8_op(wire::OpMultiline, options.enter_submits ? 2 : 1);
-    if (options.password) u8(wire::OpPassword);
-    if (options.passthrough_nav) u8(wire::OpPassthroughNav);
-    if (options.focus) u8_op(wire::OpFocus, 2);
-    else if (options.autofocus) u8_op(wire::OpFocus, 1);
-    u8(wire::OpEnd);
-    return result;
-  }
+  Response input(std::string_view key, std::string &value, const InputOptions &options = {});
 
   struct KeyEvent {
     uint32_t key = 0, mods = 0;
