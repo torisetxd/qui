@@ -252,7 +252,7 @@ if menu && ui.Popup("ctx", x, y, qui.Style{W: qui.Px(180), Bg: qui.Raised, Radiu
 ui.Tooltip(row.Hovered, "Copy link")
 ```
 
-`PickFiles(multiple)` opens the system file picker without blocking and `PickedFiles()` returns the paths chosen so far, clearing them; the app is woken when the user picks. Files dropped on the window arrive the same way, and `FilesHovering()` is true while they are dragged over it (native only; C++ `pick_files`, `picked_files`, `files_hovering`).
+`PickFiles(multiple)` opens the system file picker without blocking and `PickedFiles()` returns the paths chosen so far, clearing them; the app is woken when the user picks. Files dropped on the window arrive the same way, as do files or an image pasted with Ctrl+V into a focused input (the image is saved to a temp file that is removed on exit; Ctrl+Shift+V pastes text instead), and `FilesHovering()` is true while they are dragged over it (native only; C++ `pick_files`, `picked_files`, `files_hovering`).
 
 `SetClipboard(text)` (C++ `set_clipboard`) puts text on the system clipboard, which a context menu's "Copy" needs; browsers only allow it inside a click.
 

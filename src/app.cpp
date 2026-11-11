@@ -9,7 +9,9 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <cmath>
 #include <cstdio>
@@ -217,6 +219,8 @@ struct qui_app {
   std::mutex picked_lock;
   std::deque<std::string> picked;
   std::string picked_out;
+  std::filesystem::path paste_dir;
+  int pastes = 0;
   Engine engine;
   std::unique_ptr<Backend> backend;
   CpuBackend *cpu = nullptr;
@@ -602,6 +606,89 @@ struct qui_app {
     return out;
   }
 
+  static std::string clipboard_data(const char *mime) {
+    size_t size = 0;
+    void *data = SDL_GetClipboardData(mime, &size);
+    std::string out = data ? std::string(static_cast<const char *>(data), size) : std::string();
+    SDL_free(data);
+    return out;
+  }
+
+  static std::string file_uri_path(std::string_view uri) {
+    if (!uri.starts_with("file://")) return {};
+    uri.remove_prefix(7);
+    const size_t slash = uri.find('/');
+    if (slash == std::string_view::npos) return {};
+    uri.remove_prefix(slash);
+    std::string path;
+    for (size_t i = 0; i < uri.size(); ++i) {
+      if (uri[i] == '%' && i + 2 < uri.size()) {
+        const auto hex = [](char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; };
+        const int high = hex(uri[i + 1]), low = hex(uri[i + 2]);
+        if (high >= 0 && low >= 0) {
+          path += static_cast<char>(high * 16 + low);
+          i += 2;
+          continue;
+        }
+      }
+      path += uri[i];
+    }
+    return path;
+  }
+
+  // Files copied in a file manager, or a copied image with no text beside it,
+  // paste the way a drop arrives: through picked_files. Pasted images are
+  // written under a temp directory that close() removes.
+  bool paste_files() {
+    if (!sdl_ready) return false;
+    std::vector<std::string> paths;
+    for (const char *mime : {"text/uri-list", "x-special/gnome-copied-files"}) {
+      if (!paths.empty() || !SDL_HasClipboardData(mime)) continue;
+      const std::string list = clipboard_data(mime);
+      size_t start = 0;
+      while (start < list.size()) {
+        size_t end = list.find('\n', start);
+        if (end == std::string::npos) end = list.size();
+        std::string_view line(list.data() + start, end - start);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\0')) line.remove_suffix(1);
+        if (std::string path = file_uri_path(line); !path.empty()) paths.push_back(std::move(path));
+        start = end + 1;
+      }
+    }
+    if (paths.empty() && !SDL_HasClipboardText()) {
+      static constexpr std::pair<const char *, const char *> images[] = {
+          {"image/png", "png"}, {"image/jpeg", "jpg"}, {"image/gif", "gif"}, {"image/webp", "webp"}};
+      for (const auto &[mime, extension] : images) {
+        if (!SDL_HasClipboardData(mime)) continue;
+        const std::string bytes = clipboard_data(mime);
+        if (bytes.empty()) break;
+        std::error_code error;
+        if (paste_dir.empty()) {
+          const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
+          paste_dir = std::filesystem::temp_directory_path(error) / ("qui-paste-" + std::to_string(stamp));
+          if (error) {
+            paste_dir.clear();
+            break;
+          }
+        }
+        const auto dir = paste_dir / std::to_string(++pastes);
+        std::filesystem::create_directories(dir, error);
+        const auto path = dir / (std::string("image.") + extension);
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        if (error || !file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()))) break;
+        paths.push_back(path.string());
+        break;
+      }
+    }
+    if (paths.empty()) return false;
+    {
+      std::lock_guard lock(picked_lock);
+      for (auto &path : paths) picked.push_back(std::move(path));
+    }
+    dirty = true;
+    return true;
+  }
+
   void input_touched(InputState &state) {
     engine.refresh_input(state);
     restart_blink();
@@ -704,7 +791,7 @@ struct qui_app {
           }
           return true;
         case 'v':
-          insert_text(state, read_clipboard(), EditKind::Other);
+          if (shift || state.password || !paste_files()) insert_text(state, read_clipboard(), EditKind::Other);
           return true;
         case 'z':
           if (shift) state.restore(state.redo, state.undo);
@@ -1812,6 +1899,10 @@ struct qui_app {
   }
 
   void close() {
+    if (!paste_dir.empty()) {
+      std::error_code error;
+      std::filesystem::remove_all(paste_dir, error);
+    }
     if (cursor_text) SDL_DestroyCursor(cursor_text);
     backend.reset();
     if (gl) SDL_GL_DestroyContext(gl);
