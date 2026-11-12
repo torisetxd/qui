@@ -328,7 +328,7 @@ class GlBackend final : public Backend {
     const float r = static_cast<float>((frame.clear >> 24) & 0xff) / 255.f;
     const float g = static_cast<float>((frame.clear >> 16) & 0xff) / 255.f;
     const float b = static_cast<float>((frame.clear >> 8) & 0xff) / 255.f;
-    gl_.ClearColor(r, g, b, 1);
+    gl_.ClearColor(r, g, b, static_cast<float>(frame.clear & 0xff) / 255.f);
     gl_.Clear(GL_COLOR_BUFFER_BIT);
     gl_.Enable(GL_BLEND);
     gl_.BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);

@@ -17,6 +17,11 @@ func SetAppID(id string) { native.SetAppID(id) }
 // window buttons; the edges still resize it.
 func SetBorderless(on bool) { native.SetBorderless(on) }
 
+// SetTransparent gives the window an alpha channel and starts each frame fully
+// transparent. Call it before Open. A root box with a Bg and Radius then gives
+// the window rounded corners; square them off while WindowMaximized.
+func SetTransparent(on bool) { native.SetTransparent(on) }
+
 func (u *Ui) MinimizeWindow()  { u.app.WindowAction(0) }
 func (u *Ui) ToggleMaximized() { u.app.WindowAction(1) }
 

@@ -36,6 +36,14 @@ func SetBorderless(on bool) {
 	C.qui_set_borderless(v)
 }
 
+func SetTransparent(on bool) {
+	v := C.int(0)
+	if on {
+		v = 1
+	}
+	C.qui_set_transparent(v)
+}
+
 func Open(title string, width, height int) *App {
 	ctitle := C.CString(title)
 	defer C.free(unsafe.Pointer(ctitle))

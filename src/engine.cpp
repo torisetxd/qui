@@ -1491,12 +1491,12 @@ void Engine::paint() {
   resolve_selection();
   frame.width = static_cast<int>(std::round(nodes[0].w * dpr));
   frame.height = static_cast<int>(std::round(nodes[0].h * dpr));
-  frame.clear = resolve(static_cast<uint32_t>(TokenBackground) << 24);
+  frame.clear = transparent ? 0 : resolve(static_cast<uint32_t>(TokenBackground) << 24) | 0xffu;
   // The system bars sit outside the root's padding, so they show the clear color.
-  if (insets[0] > 0 || insets[1] > 0 || insets[2] > 0 || insets[3] > 0) {
+  if (!transparent && (insets[0] > 0 || insets[1] > 0 || insets[2] > 0 || insets[3] > 0)) {
     const int32_t child = nodes[0].first_child;
     if (child >= 0 && nodes[static_cast<size_t>(child)].bg && nodes[static_cast<size_t>(child)].w_mode == SizeFill && nodes[static_cast<size_t>(child)].h_mode == SizeFill)
-      frame.clear = resolve(nodes[static_cast<size_t>(child)].bg);
+      frame.clear = resolve(nodes[static_cast<size_t>(child)].bg) | 0xffu;
   }
   paint_node(0, 1, IRect{0, 0, frame.width, frame.height});
 }

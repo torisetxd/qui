@@ -259,7 +259,7 @@ ui.Tooltip(row.Hovered, "Copy link")
 
 `SetClipboard(text)` (C++ `set_clipboard`) puts text on the system clipboard, which a context menu's "Copy" needs; browsers only allow it inside a click.
 
-Custom title bar: call `qui.SetBorderless(true)` before `Open` (C++ `qui::set_borderless(true)` before the `Ui`), give the bar `Drag: true` so pressing it moves the window (hit boxes inside it still click), and draw buttons that call `MinimizeWindow()`, `ToggleMaximized()` and `CloseWindow()`; `WindowMaximized()` picks the icon. The window edges still resize it. Desktop native only. C++: `.drag`, `minimize_window`, `toggle_maximized`, `close_window`, `window_maximized`.
+Custom title bar: call `qui.SetBorderless(true)` before `Open` (C++ `qui::set_borderless(true)` before the `Ui`), give the bar `Drag: true` so pressing it moves the window (hit boxes inside it still click), and draw buttons that call `MinimizeWindow()`, `ToggleMaximized()` and `CloseWindow()`; `WindowMaximized()` picks the icon. The window edges still resize it. For rounded corners also call `qui.SetTransparent(true)` before `Open` (C++ `qui::set_transparent(true)`): frames then start transparent, so give the root box `Bg` and `Radius`, and drop the radius while `WindowMaximized()`. Desktop native only. C++: `.drag`, `minimize_window`, `toggle_maximized`, `close_window`, `window_maximized`.
 
 `SetSmoothScroll(true)` eases mouse wheel steps (native; browsers smooth the wheel themselves) and `SetReduceMotion(true)` makes drawers, `Ease` and `Tween` snap. C++: `set_smooth_scroll`, `set_reduce_motion`.
 

@@ -50,6 +50,7 @@ constexpr double kNever = std::numeric_limits<double>::infinity();
 
 std::string g_app_id;
 bool g_borderless = false;
+bool g_transparent = false;
 
 constexpr uint32_t kKeyReleased = 0x100;
 
@@ -527,6 +528,7 @@ struct qui_app {
     };
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
+    if (g_transparent) SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     configure(es);
     window = SDL_CreateWindow(title, width, height, flags | SDL_WINDOW_OPENGL);
@@ -601,6 +603,9 @@ struct qui_app {
     if (headless) std::fprintf(stderr, "qui: build %s\n", QUI_BUILD_ID);
 #endif
     engine.async_images = !headless;
+#if !defined(__ANDROID__)
+    engine.transparent = g_transparent;
+#endif
     engine.on_async = [] {
       SDL_Event event{};
       event.type = SDL_EVENT_USER;
@@ -636,6 +641,7 @@ struct qui_app {
     if (headless) flags |= SDL_WINDOW_HIDDEN;
 #if !defined(__ANDROID__)
     if (g_borderless) flags |= SDL_WINDOW_BORDERLESS;
+    if (g_transparent) flags |= SDL_WINDOW_TRANSPARENT;
 #endif
     if (requested == "cpu" || !create_gl(flags, title, width, height)) {
       if (headless) {
@@ -2264,6 +2270,7 @@ extern "C" {
 void qui_set_app_id(const char *id) { g_app_id = id ? id : ""; }
 
 void qui_set_borderless(int on) { g_borderless = on != 0; }
+void qui_set_transparent(int on) { g_transparent = on != 0; }
 
 void qui_window_action(qui_app *app, int action) {
   if (app) app->window_action(action);

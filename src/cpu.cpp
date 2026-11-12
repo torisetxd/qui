@@ -115,7 +115,7 @@ class Cpu final : public CpuBackend {
 
   void draw(const FrameData &frame, IRect damage, double) override {
     if (damage.empty()) return;
-    const uint32_t clear = __builtin_bswap32(frame.clear) | 0xff000000u;
+    const uint32_t clear = __builtin_bswap32(frame.clear);
     for (int y = damage.y; y < damage.y + damage.h; ++y)
       std::fill_n(pixels_.data() + static_cast<size_t>(y) * width_ + damage.x, damage.w, clear);
 

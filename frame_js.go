@@ -16,8 +16,10 @@ type platform struct {
 // SetAppID has no effect in the browser.
 func SetAppID(string) {}
 
-// SetBorderless and the window controls have no effect in the browser.
+// SetBorderless, SetTransparent and the window controls have no effect in the
+// browser.
 func SetBorderless(bool)            {}
+func SetTransparent(bool)           {}
 func (u *Ui) MinimizeWindow()       {}
 func (u *Ui) ToggleMaximized()      {}
 func (u *Ui) CloseWindow()          {}

@@ -348,6 +348,8 @@ class Engine {
   // last pixels keep showing until the new ones land, then on_async asks for
   // a frame.
   bool async_images = false;
+  // The window has an alpha channel, so frames clear to transparent.
+  bool transparent = false;
   std::function<void()> on_async;
   struct Resampler;
   std::unique_ptr<Resampler> resampler_;

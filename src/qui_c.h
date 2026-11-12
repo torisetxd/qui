@@ -16,6 +16,7 @@ void qui_set_app_id(const char *id);
 /* Opens the window without the system title bar and border. Call before
  * qui_open. Boxes with the Drag style move it; the edges still resize it. */
 void qui_set_borderless(int on);
+void qui_set_transparent(int on);
 
 qui_app *qui_open(const char *title, int width, int height);
 void qui_close(qui_app *app);

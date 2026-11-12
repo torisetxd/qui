@@ -254,6 +254,10 @@ inline void set_app_id(const char *id);
 // Mark the title bar with Style::drag and draw your own window buttons; the
 // edges still resize it.
 inline void set_borderless(bool on);
+// Call before creating the Ui: the window gets an alpha channel and each frame
+// starts fully transparent, so a root box with a bg and radius gives the
+// window rounded corners. Square them off while window_maximized().
+inline void set_transparent(bool on);
 
 class Ui {
   Ui(const char *title, int width, int height);
