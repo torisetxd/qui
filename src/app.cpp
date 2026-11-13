@@ -662,6 +662,7 @@ struct qui_app {
     if (window) read_size();
 #if !defined(__ANDROID__)
     if (window && g_borderless) SDL_SetWindowHitTest(window, window_hit_test, this);
+    if (window && !headless) SDL_StartTextInput(window);
 #endif
     if (window && headless) {
       if (!env("QUI_DPR").empty()) {
@@ -2170,7 +2171,11 @@ struct qui_app {
     // Stopping waits a frame, so a tap that the app answers by focusing an input
     // keeps the on-screen keyboard. Android's check for a shown keyboard lags a
     // stop, so a stop and start within one frame would leave it hidden.
+#if defined(__ANDROID__)
     if (std::exchange(stop_text_pending, false) && !focused_input() && sdl_ready && window) SDL_StopTextInput(window);
+#else
+    stop_text_pending = false;
+#endif
     update_ime_area();
     size_t upload_bytes = 0;
     const size_t upload_count = engine.fonts.pending_uploads().size();
