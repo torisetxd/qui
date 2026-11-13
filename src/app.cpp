@@ -440,6 +440,8 @@ struct qui_app {
   bool text_selecting = false, files_hovering = false;
   float engine_ms = 0;
   std::vector<uint32_t> keys;
+  std::string stray_text;
+  int stray_frame = 0;
   std::string clipboard, text_blob;
   SDL_Rect last_ime_area{};
   SDL_Cursor *cursor_text = nullptr;
@@ -1624,6 +1626,10 @@ struct qui_app {
         if (InputState *state = focused_input()) {
           state->preedit.clear();
           insert_text(*state, e.text.text, EditKind::Type);
+        } else if (e.text.text) {
+          stray_text += e.text.text;
+          stray_frame = frames;
+          dirty = true;
         }
         break;
       case SDL_EVENT_TEXT_EDITING:
@@ -2144,6 +2150,14 @@ struct qui_app {
     if (engine.focus_request) {
       set_focus(engine.focus_request, false);
       engine.focus_request = 0;
+    }
+    if (!stray_text.empty()) {
+      if (InputState *state = focused_input()) {
+        insert_text(*state, stray_text, EditKind::Type);
+        stray_text.clear();
+      } else if (frames > stray_frame + 3) {
+        stray_text.clear();
+      }
     }
     engine.ui = {shown_hovered(), shown_pressed(), focused, focus_ring, headless || caret_on, scrollbar_dragged ? scrollbar_dragged : scrollbar_hovered};
     engine.paint();
