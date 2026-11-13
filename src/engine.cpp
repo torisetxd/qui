@@ -1714,17 +1714,23 @@ struct Engine::Resampler {
   std::vector<Job> done;
   std::function<void()> notify;
   bool stop = false;
-  std::thread worker;
+  // A few threads, so a screen of pictures arriving together scales in
+  // parallel instead of queueing behind the largest one.
+  std::vector<std::thread> workers;
 
-  explicit Resampler(std::function<void()> on_done) : notify(std::move(on_done)), worker([this] { run(); }) {}
+  explicit Resampler(std::function<void()> on_done) : notify(std::move(on_done)) {
+    const unsigned cores = std::max(1u, std::thread::hardware_concurrency());
+    const unsigned count = std::clamp(cores / 2, 1u, 3u);
+    for (unsigned i = 0; i < count; ++i) workers.emplace_back([this] { run(); });
+  }
 
   ~Resampler() {
     {
       std::lock_guard guard(lock);
       stop = true;
     }
-    wake.notify_one();
-    worker.join();
+    wake.notify_all();
+    for (std::thread &worker : workers) worker.join();
   }
 
   void push(Job job) {
