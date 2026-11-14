@@ -77,6 +77,8 @@ struct Response {
   bool focused = false, drag_start = false, dragging = false, drag_end = false;
   bool changed = false, submitted = false;
   bool long_pressed = false, double_tapped = false, pan_start = false, panning = false, pan_end = false, pinching = false;
+  // A bottom list resting at its end.
+  bool pinned = false;
   float x = 0, y = 0, w = 0, h = 0, dx = 0, dy = 0;
   float vx = 0, vy = 0, scale = 1;
   Swipe swipe = Swipe::None;
@@ -744,6 +746,10 @@ class Ui {
     if (!result.found || visible == 0) {
       visible = std::min<uint32_t>(count, 32);
       first = options.bottom && count > visible ? count - visible : 0;
+    } else if (result.pinned && first + visible < count) {
+      // Items appended to a list resting at its end show up this frame, not after a frame without them.
+      visible = std::min(count - first, visible + 32);
+      first = count - visible;
     }
     stack_.push_back({id, 0});
     for (uint32_t i = first; i < std::min(first + visible, count); ++i) {
@@ -1113,6 +1119,7 @@ class Ui {
       out.drag_end = flags & wire::FlagDragEnd;
       out.changed = flags & wire::FlagChanged;
       out.submitted = flags & wire::FlagSubmitted;
+      out.pinned = flags & wire::FlagPinned;
       if (flags & wire::FlagShaderError) out.error = std::string_view(reinterpret_cast<const char *>(res_) + header_u32(40) + out.first, out.count);
       return out;
     }

@@ -117,6 +117,7 @@ const (
 	flagPanning      = 16384
 	flagPanEnd       = 32768
 	flagPinching     = 65536
+	flagPinned       = 131072
 )
 
 const (

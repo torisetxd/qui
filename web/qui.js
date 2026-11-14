@@ -1091,6 +1091,8 @@ class Patcher {
     }
     el.__settled = true;
     const entry = this.entries.get(node.key);
+    const pinned = node.bottom && el.__last === node.count && el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+    entry.flags = pinned ? entry.flags | Flag.Pinned : entry.flags & ~Flag.Pinned;
     const [wantFirst, wantCount] = this.listRange(el, node);
     if (wantFirst !== entry.first || wantCount !== entry.count) {
       entry.first = wantFirst;

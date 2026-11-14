@@ -331,6 +331,7 @@ flag PanStart 8192
 flag Panning 16384
 flag PanEnd 32768
 flag Pinching 65536
+flag Pinned 131072
 
 token Background 1
 token Surface 2

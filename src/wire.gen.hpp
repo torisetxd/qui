@@ -142,6 +142,7 @@ enum Flag : uint32_t {
   FlagPanning = 16384,
   FlagPanEnd = 32768,
   FlagPinching = 65536,
+  FlagPinned = 131072,
 };
 
 enum Token : uint8_t {

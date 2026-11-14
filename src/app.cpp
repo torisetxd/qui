@@ -2074,7 +2074,7 @@ struct qui_app {
     for (auto &[id, state] : engine.lists) {
       if (state.frame != engine.frame_number) continue;
       state.compute_range();
-      put_slot(results, capacity, id, 0, state.first, std::max(1u, state.visible), nullptr, false);
+      put_slot(results, capacity, id, state.bottom && state.stuck ? wire::FlagPinned : 0, state.first, std::max(1u, state.visible), nullptr, false);
     }
     uint32_t blob_at = 0;
     for (auto &[id, state] : engine.inputs) {

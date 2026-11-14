@@ -64,7 +64,9 @@ type Response struct {
 	// LongPressed fires for a touch held in place, and also sets RightClicked.
 	LongPressed, DoubleTapped           bool
 	PanStart, Panning, PanEnd, Pinching bool
-	X, Y, W, H, DX, DY                  float32
+	// Pinned is set on a Bottom list resting at its end.
+	Pinned             bool
+	X, Y, W, H, DX, DY float32
 	// VX and VY are the pan velocity in pixels per second.
 	VX, VY float32
 	// Scale is this frame's pinch factor, 1 when not pinching.
@@ -284,6 +286,10 @@ func (u *Ui) List(key string, count int, estimate float32, o ListOptions, row fu
 		if o.Bottom && count > visible {
 			first = count - visible
 		}
+	} else if result.Pinned && first+visible < count {
+		// Items appended to a list resting at its end show up this frame, not after a frame without them.
+		visible = min(count-first, visible+32)
+		first = count - visible
 	}
 	u.stack = append(u.stack, scope{id, 0})
 	for i := first; i < min(first+visible, count); i++ {
@@ -565,6 +571,7 @@ func (u *Ui) lookup(id uint64) Response {
 		out.Panning = flags&flagPanning != 0
 		out.PanEnd = flags&flagPanEnd != 0
 		out.Pinching = flags&flagPinching != 0
+		out.Pinned = flags&flagPinned != 0
 		if out.Pinching {
 			out.Scale = float(20)
 		}

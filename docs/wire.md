@@ -118,6 +118,8 @@ UTF-8 text of every edited `Input` and every failed `Shader`.
 `first` and `count` are the visible item range of a `List`. On an `Input` with
 `Changed` set they are the byte offset from `text_offset` and the length of its
 new value, and on a `Shader` with `ShaderError` set the same for its compile log.
+A `Bottom` list sets `Pinned` while it rests at its end, so a client building
+more items than it had can build the new ones in the same frame.
 
 ## Gestures
 

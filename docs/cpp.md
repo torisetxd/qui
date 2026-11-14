@@ -130,6 +130,8 @@ struct Response {
   bool focused = false, drag_start = false, dragging = false, drag_end = false;
   bool changed = false, submitted = false;
   bool long_pressed = false, double_tapped = false, pan_start = false, panning = false, pan_end = false, pinching = false;
+  // A bottom list resting at its end.
+  bool pinned = false;
   float x = 0, y = 0, w = 0, h = 0, dx = 0, dy = 0;
   float vx = 0, vy = 0, scale = 1;
   Swipe swipe = Swipe::None;
