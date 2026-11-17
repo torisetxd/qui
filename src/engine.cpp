@@ -633,7 +633,12 @@ void Engine::wrap(Node &node, float inner_width) {
           if (g.cluster_start_byte < para.size() && para[g.cluster_start_byte] == ' ') last_break = i + 1;
         }
         uint32_t visible = end;
-        while (visible > start && para[shaped.glyphs[visible - 1].cluster_start_byte] == ' ') --visible;
+        // A line that breaks here hangs its trailing spaces outside the line,
+        // but the last line of a paragraph keeps them: the caret has to be able
+        // to sit after a space that was just typed.
+        if (end < count) {
+          while (visible > start && para[shaped.glyphs[visible - 1].cluster_start_byte] == ' ') --visible;
+        }
         const float width = visible > start
                                 ? shaped.glyphs[visible - 1].x + shaped.glyphs[visible - 1].x_advance - origin
                                 : 0;
