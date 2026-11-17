@@ -43,6 +43,7 @@ using namespace qui;
 constexpr float kDragThreshold = 4, kTouchSlop = 8;
 constexpr size_t kResultsHeader = 64, kResultsSlot = 56;
 constexpr float kWheelPixels = 110, kSmoothRate = 13, kSmoothCap = 2600;
+constexpr double kWheelRun = 0.25;
 constexpr double kCaretBlink = 0.53;
 constexpr double kLongPress = 0.5, kDoubleTap = 0.3, kPressDelay = 0.08, kVelocityWindow = 0.1, kFlingStep = 1.0 / 60.0;
 constexpr float kDoubleTapSlop = 24, kFlingMin = 120, kFlingStop = 24, kFlingDecay = 3, kFlingMax = 6000;
@@ -477,6 +478,11 @@ struct qui_app {
   uint64_t smooth_id = 0;
   float smooth_left = 0;
   bool smooth_wheel = false;
+  // A run of wheel events less than kWheelRun apart. Once one of them looks
+  // like a touchpad or a high resolution wheel, which already scroll in small
+  // steps, the rest of the run is applied directly.
+  double wheel_at = -1;
+  bool wheel_fine = false;
 
   double next_tick = 0, blink_at = 0;
   // Android can drop the first frames presented to a surface it just
@@ -1166,9 +1172,20 @@ struct qui_app {
     const uint64_t id = hit_test(pointer_x, pointer_y, true);
     if (!id) return;
     const float delta = -amount * kWheelPixels;
-    // Touchpads send fractional steps at a high rate and already feel smooth.
-    if (!smooth_wheel || amount != std::round(amount)) {
+    // Desktops scale wheel notches (KDE's scroll speed sends 1.5 per notch),
+    // so whole numbers alone do not tell a mouse wheel from a touchpad.
+    const double t = clock();
+    if (wheel_at < 0 || t - wheel_at > kWheelRun) wheel_fine = false;
+    wheel_at = t;
+    // Notches come in 1/120 steps (Wayland value120, Windows WHEEL_DELTA);
+    // touchpads send arbitrary amounts, and tiny steps are fine either way.
+    const float v120 = std::abs(amount) * 120;
+    if (amount != 0 && (std::abs(amount) < 0.25f || std::abs(v120 - std::round(v120)) > 0.01f)) wheel_fine = true;
+    if (!smooth_wheel || wheel_fine) {
+      // Land what is still easing instead of dropping it.
+      if (smooth_id && smooth_left != 0) scroll_content(smooth_id, smooth_left);
       smooth_id = 0;
+      smooth_left = 0;
       scroll_content(id, delta);
       return;
     }
