@@ -437,7 +437,8 @@ struct qui_app {
   uint64_t drag_start = 0, drag_end = 0, scrollbar_hovered = 0, scrollbar_dragged = 0;
   float scrollbar_grab = 0;
   bool back_pending = false, back_consumed = false;
-  bool dragging = false, focus_ring = false, selecting = false, caret_on = true, text_cursor = false, pointer_down = false, pointer_tapped = false;
+  int cursor_kind = 0;  // 0 arrow, 1 text, 2 pointer
+  bool dragging = false, focus_ring = false, selecting = false, caret_on = true, pointer_down = false, pointer_tapped = false;
   bool text_selecting = false, files_hovering = false;
   float engine_ms = 0;
   std::vector<uint32_t> keys;
@@ -445,7 +446,7 @@ struct qui_app {
   int stray_frame = 0;
   std::string clipboard, text_blob;
   SDL_Rect last_ime_area{};
-  SDL_Cursor *cursor_text = nullptr;
+  SDL_Cursor *cursor_text = nullptr, *cursor_pointer = nullptr;
 
   enum class Track : uint8_t { None, Pending, Press, Pan, Scroll, Pinch, Done };
   struct Link {
@@ -776,11 +777,18 @@ struct qui_app {
     if (id != hovered) {
       hovered = id;
       dirty = true;
-      const bool over_text = input_of(id) != nullptr;
-      if (over_text != text_cursor && sdl_ready && window) {
-        text_cursor = over_text;
-        if (over_text && !cursor_text) cursor_text = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
-        SDL_SetCursor(over_text ? cursor_text : SDL_GetDefaultCursor());
+      const int kind = !id ? 0 : input_of(id) ? 1 : 2;
+      if (kind != cursor_kind && sdl_ready && window) {
+        cursor_kind = kind;
+        SDL_Cursor *cursor = SDL_GetDefaultCursor();
+        if (kind == 1) {
+          if (!cursor_text) cursor_text = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
+          if (cursor_text) cursor = cursor_text;
+        } else if (kind == 2) {
+          if (!cursor_pointer) cursor_pointer = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
+          if (cursor_pointer) cursor = cursor_pointer;
+        }
+        SDL_SetCursor(cursor);
       }
     }
   }
@@ -2294,6 +2302,7 @@ struct qui_app {
       std::filesystem::remove_all(paste_dir, error);
     }
     if (cursor_text) SDL_DestroyCursor(cursor_text);
+    if (cursor_pointer) SDL_DestroyCursor(cursor_pointer);
     backend.reset();
     if (gl) SDL_GL_DestroyContext(gl);
     if (window) SDL_DestroyWindow(window);
