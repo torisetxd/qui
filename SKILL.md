@@ -353,6 +353,7 @@ for {
 - `OpenScreen` shows the portal dialog once and saves the permission; later runs restore it. Use `Slot` to hold several. `Multiple` and `Windows` widen the picker, `NoPersist` keeps nothing.
 - `Next(stream, timeout)` returns the newest BGRx frame, valid until the next `Next` on that stream. Use one goroutine per stream. Retry on `ErrTimeout`; `ErrClosed` means sharing stopped.
 - `sys.OpenAudio(sys.AudioOptions{})` captures the microphone, `System: true` the default output, `Target` a PipeWire node. `Read(buf, timeout)` fills interleaved `float32` and returns frames and the monotonic time of the first.
+- `sys.AudioSources()` lists the capture sources (`Name` goes back into `AudioOptions.Target`, `Monitor` marks a sink's monitor), and `sys.AudioOptions{Target: name}` captures one of them instead of the default.
 - Also: `Uninstall StartService StopService RestartService EnableService DisableService ServiceActive Register`.
 
 ## Not available yet

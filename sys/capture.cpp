@@ -4,12 +4,14 @@
 
 #include <pipewire/pipewire.h>
 #include <spa/param/audio/format-utils.h>
+#include <spa/utils/keys.h>
 #include <spa/param/video/format-utils.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -296,6 +298,120 @@ int qsys_screen_next(qsys_screen *screen, int stream, qsys_frame *out, int timeo
   if (screen->session.closed) return -1;
   if (stream < 0 || stream >= static_cast<int>(screen->streams.size())) return fail("no such stream");
   return screen->streams[static_cast<size_t>(stream)]->next(out, timeout_ms);
+}
+
+namespace {
+
+class SourceProbe {
+ public:
+  bool collect(std::vector<qsys_audio_source> &out) {
+    loop_ = pw_thread_loop_new("qui-sources", nullptr);
+    if (!loop_ || pw_thread_loop_start(loop_) < 0) {
+      if (loop_) pw_thread_loop_destroy(loop_);
+      fail("could not start the PipeWire loop");
+      return false;
+    }
+    pw_thread_loop_lock(loop_);
+    context_ = pw_context_new(pw_thread_loop_get_loop(loop_), nullptr, 0);
+    core_ = context_ ? pw_context_connect(context_, nullptr, 0) : nullptr;
+    registry_ = core_ ? pw_core_get_registry(core_, PW_VERSION_REGISTRY, 0) : nullptr;
+    if (!registry_) {
+      pw_thread_loop_unlock(loop_);
+      teardown();
+      fail("could not reach PipeWire");
+      return false;
+    }
+
+    static const pw_core_events core_events = [] {
+      pw_core_events e{};
+      e.version = PW_VERSION_CORE_EVENTS;
+      e.done = [](void *data, uint32_t id, int) {
+        auto *self = static_cast<SourceProbe *>(data);
+        if (id != PW_ID_CORE) return;
+        self->done_ = true;
+        pw_thread_loop_signal(self->loop_, false);
+      };
+      return e;
+    }();
+    static const pw_registry_events registry_events = [] {
+      pw_registry_events e{};
+      e.version = PW_VERSION_REGISTRY_EVENTS;
+      e.global = [](void *data, uint32_t, uint32_t, const char *, uint32_t, const spa_dict *properties) {
+        static_cast<SourceProbe *>(data)->add(properties);
+      };
+      return e;
+    }();
+    spa_zero(core_hook_);
+    spa_zero(registry_hook_);
+    pw_core_add_listener(core_, &core_hook_, &core_events, this);
+    pw_registry_add_listener(registry_, &registry_hook_, &registry_events, this);
+
+    pw_core_sync(core_, PW_ID_CORE, 0);
+    while (!done_) pw_thread_loop_wait(loop_);
+    pw_thread_loop_unlock(loop_);
+
+    out = std::move(found_);
+    teardown();
+    return true;
+  }
+
+ private:
+  void add(const spa_dict *properties) {
+    const char *klass = properties ? spa_dict_lookup(properties, PW_KEY_MEDIA_CLASS) : nullptr;
+    if (!klass || std::strncmp(klass, "Audio/Source", 12) != 0) return;
+    const char *name = spa_dict_lookup(properties, PW_KEY_NODE_NAME);
+    const char *description = spa_dict_lookup(properties, PW_KEY_NODE_DESCRIPTION);
+    qsys_audio_source source{};
+    std::snprintf(source.name, sizeof(source.name), "%s", name ? name : "");
+    std::snprintf(source.description, sizeof(source.description), "%s", description && *description ? description : (name ? name : ""));
+    if (!*source.name) return;
+    source.is_monitor = std::strstr(source.name, ".monitor") != nullptr;
+    for (const qsys_audio_source &seen : found_)
+      if (std::strcmp(seen.name, source.name) == 0) return;
+    found_.push_back(source);
+  }
+
+  void teardown() {
+    if (!loop_) return;
+    if (registry_) {
+      spa_hook_remove(&registry_hook_);
+      pw_proxy_destroy(reinterpret_cast<pw_proxy *>(registry_));
+      registry_ = nullptr;
+    }
+    if (core_) {
+      spa_hook_remove(&core_hook_);
+      pw_core_disconnect(core_);
+      core_ = nullptr;
+    }
+    if (context_) {
+      pw_context_destroy(context_);
+      context_ = nullptr;
+    }
+    pw_thread_loop_stop(loop_);
+    pw_thread_loop_destroy(loop_);
+    loop_ = nullptr;
+  }
+
+  pw_thread_loop *loop_ = nullptr;
+  pw_context *context_ = nullptr;
+  pw_core *core_ = nullptr;
+  pw_registry *registry_ = nullptr;
+  spa_hook core_hook_{}, registry_hook_{};
+  bool done_ = false;
+  std::vector<qsys_audio_source> found_;
+};
+
+}  // namespace
+
+extern "C" int qsys_audio_sources(qsys_audio_source *out, int max) {
+  if (!out || max <= 0) return qui::sys::fail("no room for the sources");
+  ensure_pipewire();
+  std::vector<qsys_audio_source> found;
+  SourceProbe probe;
+  if (!probe.collect(found)) return -1;
+  const size_t count = std::min<size_t>(static_cast<size_t>(max), found.size());
+  std::copy(found.begin(), found.begin() + static_cast<long>(count), out);
+  return static_cast<int>(count);
 }
 
 qsys_audio *qsys_audio_open(const qsys_audio_options *options) {

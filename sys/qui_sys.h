@@ -102,8 +102,21 @@ typedef struct qsys_audio_options {
   int channels;
 } qsys_audio_options;
 
+typedef struct qsys_audio_source {
+  /* The PipeWire node name, to pass back as qsys_audio_options.target. */
+  char name[256];
+  char description[256];
+  /* Set for a sink's monitor, which captures what is playing. */
+  int is_monitor;
+} qsys_audio_source;
+
+/* Lists the capture sources. Returns how many were written, 0 when there are
+ * none, -1 on failure. */
+int qsys_audio_sources(qsys_audio_source *out, int max);
+
 qsys_audio *qsys_audio_open(const qsys_audio_options *options);
 void qsys_audio_close(qsys_audio *audio);
+
 /* Reads interleaved float samples. Returns frames read, 0 on timeout, -1 once
  * the stream failed. `time` receives the monotonic time of the first frame. */
 int qsys_audio_read(qsys_audio *audio, float *out, int max_frames, int timeout_ms, double *time);

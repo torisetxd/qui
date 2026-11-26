@@ -278,3 +278,31 @@ func (a *Audio) Read(out []float32, timeout time.Duration) (int, float64, error)
 		return 0, 0, ErrClosed
 	}
 }
+
+// AudioSource is one capture source, named by its PipeWire node so it can be
+// passed back as AudioOptions.Target.
+type AudioSource struct {
+	Name        string
+	Description string
+	// Monitor captures what a sink is playing instead of a microphone.
+	Monitor bool
+}
+
+// AudioSources lists the capture sources. An empty result is not an error.
+func AudioSources() ([]AudioSource, error) {
+	const max = 64
+	buffer := make([]C.qsys_audio_source, max)
+	n := C.qsys_audio_sources(&buffer[0], max)
+	if n < 0 {
+		return nil, lastError()
+	}
+	out := make([]AudioSource, 0, int(n))
+	for _, source := range buffer[:n] {
+		out = append(out, AudioSource{
+			Name:        C.GoString(&source.name[0]),
+			Description: C.GoString(&source.description[0]),
+			Monitor:     source.is_monitor != 0,
+		})
+	}
+	return out, nil
+}

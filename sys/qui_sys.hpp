@@ -7,6 +7,8 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace qui::sys {
 
@@ -42,6 +44,22 @@ class Screen {
   };
   std::unique_ptr<qsys_screen, Close> p_;
 };
+
+/* A capture source to pass as qsys_audio_options::target. */
+struct AudioSource {
+  std::string name, description;
+  bool monitor = false;
+};
+
+inline std::vector<AudioSource> audio_sources() {
+  std::vector<qsys_audio_source> buffer(64);
+  const int count = qsys_audio_sources(buffer.data(), static_cast<int>(buffer.size()));
+  if (count < 0) throw std::runtime_error(qsys_last_error());
+  std::vector<AudioSource> out;
+  out.reserve(static_cast<size_t>(count));
+  for (int i = 0; i < count; ++i) out.push_back({buffer[static_cast<size_t>(i)].name, buffer[static_cast<size_t>(i)].description, buffer[static_cast<size_t>(i)].is_monitor != 0});
+  return out;
+}
 
 class Audio {
  public:
