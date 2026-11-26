@@ -353,11 +353,12 @@ for {
 - `OpenScreen` shows the portal dialog once and saves the permission; later runs restore it. Use `Slot` to hold several. `Multiple` and `Windows` widen the picker, `NoPersist` keeps nothing.
 - `Next(stream, timeout)` returns the newest BGRx frame, valid until the next `Next` on that stream. Use one goroutine per stream. Retry on `ErrTimeout`; `ErrClosed` means sharing stopped.
 - `sys.OpenAudio(sys.AudioOptions{})` captures the microphone, `System: true` the default output, `Target` a PipeWire node. `Read(buf, timeout)` fills interleaved `float32` and returns frames and the monotonic time of the first.
+- **Global shortcuts** go through the same portal and need no socket between a hotkey and the app: `sc, err := sys.OpenShortcuts(id, []sys.Shortcut{{ID: "toggle", Description: "Toggle dictation", PreferredTrigger: "ALT+R"}}, func(id string) { wake() })`, then `sc.Close()`. It returns before the user answers the portal's dialog, so the keys come alive a moment later, and the callback runs on an internal thread: hand the work to the UI thread and call `Wake`. Install the app first so the portal knows the id. The desktop owns the keys after that, so a mapping already in `~/.config/kglobalshortcutsrc` wins over a new suggestion; when a shortcut ends up with no key, qui/sys says so on stderr.
 - `sys.AudioSources()` lists the capture sources (`Name` goes back into `AudioOptions.Target`, `Monitor` marks a sink's monitor), and `sys.AudioOptions{Target: name}` captures one of them instead of the default.
 - Also: `Uninstall StartService StopService RestartService EnableService DisableService ServiceActive Register`.
 
 ## Not available yet
 
-Do not assume these exist: animated images, right-to-left paragraphs (mixed text orders correctly, but the base direction is always left-to-right), global shortcuts. On the web, list spacers use the estimate, so the scrollbar can shift when real heights differ.
+Do not assume these exist: animated images, right-to-left paragraphs (mixed text orders correctly, but the base direction is always left-to-right). On the web, list spacers use the estimate, so the scrollbar can shift when real heights differ.
 
 To change qui itself (a node kind, op, style field or token), read its `AGENTS.md`: most of it is one line in `tools/gen/spec.txt` and `go run ./tools/gen`.

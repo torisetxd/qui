@@ -85,7 +85,7 @@ Run them from the repo root:
 - **Gestures:** pan with axis arbitration against scrollers, fling scrolling, pinch, long press, double tap and a swipeable drawer.
 - **Renderers:** OpenGL ES 3.0 or desktop GL 3.3, with a CPU rasterizer as the fallback.
 - **Real DOM on the web:** actual buttons, inputs and headings, with roles and labels for screen readers.
-- **Linux desktop tools:** `qui/sys` handles `.desktop` install, background services, and screen and microphone capture with saved permissions.
+- **Linux desktop tools:** `qui/sys` handles `.desktop` install, background services, global shortcuts through the portal, and screen and microphone capture with saved permissions.
 
 ## Status
 
@@ -96,7 +96,7 @@ Run them from the repo root:
 | Windows | Works, tested under Wine |
 | Android | Works, tested on the x86_64 emulator; arm64 builds but has not been run |
 
-Also missing: animated images, right-to-left paragraph direction and global shortcuts. Android APKs are debug-signed, and `qui build` only packages Go apps for Android.
+Also missing: animated images and right-to-left paragraph direction. Android APKs are debug-signed, and `qui build` only packages Go apps for Android.
 
 ## Getting started
 

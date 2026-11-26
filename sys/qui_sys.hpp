@@ -3,6 +3,7 @@
 #include "qui_sys.h"
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -60,6 +61,35 @@ inline std::vector<AudioSource> audio_sources() {
   for (int i = 0; i < count; ++i) out.push_back({buffer[static_cast<size_t>(i)].name, buffer[static_cast<size_t>(i)].description, buffer[static_cast<size_t>(i)].is_monitor != 0});
   return out;
 }
+
+/* Global keys through the portal. The keys arrive on an internal thread, so
+ * wake the UI from the callback instead of touching it there. */
+class Shortcuts {
+ public:
+  struct Entry {
+    std::string id, description, preferred_trigger;
+  };
+
+  Shortcuts(const std::string &app_id, const std::vector<Entry> &entries, std::function<void(const std::string &)> on)
+      : on_(std::move(on)) {
+    std::vector<qsys_shortcut> raw;
+    raw.reserve(entries.size());
+    for (const Entry &entry : entries) raw.push_back({entry.id.c_str(), entry.description.c_str(), entry.preferred_trigger.c_str()});
+    p_.reset(qsys_shortcuts_open(app_id.c_str(), raw.data(), static_cast<int>(raw.size()), &Shortcuts::dispatch, this));
+    if (!p_) throw std::runtime_error(qsys_last_error());
+  }
+
+ private:
+  static void dispatch(const char *id, void *user) {
+    auto *self = static_cast<Shortcuts *>(user);
+    if (self->on_) self->on_(id);
+  }
+  struct Close {
+    void operator()(qsys_shortcuts *shortcuts) const { qsys_shortcuts_close(shortcuts); }
+  };
+  std::function<void(const std::string &)> on_;
+  std::unique_ptr<qsys_shortcuts, Close> p_;
+};
 
 class Audio {
  public:

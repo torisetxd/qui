@@ -14,11 +14,14 @@ package sys
 #cgo LDFLAGS: -lpipewire-0.3 -lstdc++
 #include <stdlib.h>
 #include "qui_sys.h"
+
+extern void qsysGoShortcut(char *id, void *user);
 */
 import "C"
 
 import (
 	"errors"
+	"runtime/cgo"
 	"time"
 	"unsafe"
 )
@@ -305,4 +308,68 @@ func AudioSources() ([]AudioSource, error) {
 		})
 	}
 	return out, nil
+}
+
+// Shortcut is one global shortcut. The portal picks the key after asking the
+// user once per app id, and the compositor owns it from then on.
+type Shortcut struct {
+	// ID comes back through the callback when its key is pressed.
+	ID          string
+	Description string
+	// PreferredTrigger is suggested where the portal allows it, like "ALT+R".
+	PreferredTrigger string
+}
+
+// Shortcuts is a live set of global keys.
+type Shortcuts struct {
+	p    *C.qsys_shortcuts
+	slot *C.uintptr_t
+}
+
+//export qsysGoShortcut
+func qsysGoShortcut(id *C.char, user unsafe.Pointer) {
+	if user == nil || id == nil {
+		return
+	}
+	if on, ok := cgo.Handle(uintptr(*((*C.uintptr_t)(user)))).Value().(func(string)); ok {
+		on(C.GoString(id))
+	}
+}
+
+// OpenShortcuts binds global shortcuts through the desktop portal. It returns
+// before the user has answered the portal's dialog, so the keys come alive a
+// moment later. on runs on an internal thread: hand the work to the UI thread
+// and wake it. Install the app first, so the portal knows its id.
+func OpenShortcuts(appID string, list []Shortcut, on func(string)) (*Shortcuts, error) {
+	if on == nil {
+		return nil, errors.New("qui/sys: shortcuts need a callback")
+	}
+	cid := C.CString(appID)
+	defer C.free(unsafe.Pointer(cid))
+	var s strings
+	defer s.free()
+	buffer := make([]C.qsys_shortcut, len(list))
+	for i, shortcut := range list {
+		buffer[i] = C.qsys_shortcut{
+			id:                s.add(shortcut.ID),
+			description:       s.add(shortcut.Description),
+			preferred_trigger: s.add(shortcut.PreferredTrigger),
+		}
+	}
+	handle := cgo.NewHandle(on)
+	slot := (*C.uintptr_t)(C.malloc(C.size_t(unsafe.Sizeof(C.uintptr_t(0)))))
+	*slot = C.uintptr_t(handle)
+	p := C.qsys_shortcuts_open(cid, &buffer[0], C.int(len(buffer)), C.qsys_shortcut_fn(C.qsysGoShortcut), unsafe.Pointer(slot))
+	if p == nil {
+		handle.Delete()
+		C.free(unsafe.Pointer(slot))
+		return nil, lastError()
+	}
+	return &Shortcuts{p, slot}, nil
+}
+
+// Close unbinds the keys and waits for the portal thread to stop.
+func (s *Shortcuts) Close() {
+	C.qsys_shortcuts_close(s.p)
+	C.free(unsafe.Pointer(s.slot))
 }

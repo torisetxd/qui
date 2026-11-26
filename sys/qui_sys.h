@@ -89,6 +89,30 @@ int qsys_screen_had_permission(const qsys_screen *screen);
  * session has ended. Reconnects by itself if the stream silently stalls. */
 int qsys_screen_next(qsys_screen *screen, int stream, qsys_frame *out, int timeout_ms);
 
+/* Global shortcuts through org.freedesktop.portal.GlobalShortcuts. The portal
+ * shows its dialog once per app id and the compositor owns the keys after
+ * that; install the app first so the portal knows the id. */
+typedef struct qsys_shortcuts qsys_shortcuts;
+
+typedef struct qsys_shortcut {
+  /* Reported back through the callback when its key is pressed. */
+  const char *id;
+  /* Shown in the portal dialog and in the desktop's shortcut settings. */
+  const char *description;
+  /* A trigger to suggest when the portal can, like "ALT+R". NULL for none. */
+  const char *preferred_trigger;
+} qsys_shortcut;
+
+/* Runs on the portal thread for every activated shortcut. Wake the UI from it.
+ * The id is valid for the duration of the call. */
+typedef void (*qsys_shortcut_fn)(const char *id, void *user);
+
+/* Binds the shortcuts and returns before the user has answered the dialog, so
+ * the keys come alive a moment later. NULL means the portal is unavailable or
+ * refused. */
+qsys_shortcuts *qsys_shortcuts_open(const char *app_id, const qsys_shortcut *shortcuts, int count, qsys_shortcut_fn fn, void *user);
+void qsys_shortcuts_close(qsys_shortcuts *shortcuts);
+
 typedef struct qsys_audio qsys_audio;
 
 typedef struct qsys_audio_options {
