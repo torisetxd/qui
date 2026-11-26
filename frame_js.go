@@ -20,6 +20,12 @@ func SetAppID(string) {}
 // browser.
 func SetBorderless(bool)            {}
 func SetTransparent(bool)           {}
+func SetAlwaysOnTop(bool)           {}
+func SetUtilityWindow(bool)         {}
+func SetFocusable(bool)             {}
+func SetStartHidden(bool)           {}
+func (u *Ui) ShowWindow(bool)       {}
+func (u *Ui) HideWindow()           {}
 func (u *Ui) MinimizeWindow()       {}
 func (u *Ui) ToggleMaximized()      {}
 func (u *Ui) CloseWindow()          {}

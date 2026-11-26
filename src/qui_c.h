@@ -18,6 +18,25 @@ void qui_set_app_id(const char *id);
 void qui_set_borderless(int on);
 void qui_set_transparent(int on);
 
+/* Call before qui_open. The window stays above other windows, where the
+ * compositor allows it; Wayland has no protocol for this, so there it needs a
+ * window rule. */
+void qui_set_always_on_top(int on);
+
+/* Call before qui_open. Leaves the window out of the task bar and the window
+ * list, for an overlay or a palette. */
+void qui_set_utility_window(int on);
+
+/* Call before qui_open; on by default. Off keeps the window from taking the
+ * keyboard focus, for an overlay that only shows something. */
+void qui_set_focusable(int on);
+
+/* Call before qui_open to start with the window hidden. */
+void qui_set_start_hidden(int on);
+
+/* Shows or hides the window while the loop keeps running. */
+void qui_show_window(qui_app *app, int on);
+
 qui_app *qui_open(const char *title, int width, int height);
 void qui_close(qui_app *app);
 

@@ -22,6 +22,28 @@ func SetBorderless(on bool) { native.SetBorderless(on) }
 // the window rounded corners; square them off while WindowMaximized.
 func SetTransparent(on bool) { native.SetTransparent(on) }
 
+// SetAlwaysOnTop keeps the window above other windows, where the compositor
+// allows it; Wayland has no protocol for it, so there a window rule is still
+// needed. Call it before Open.
+func SetAlwaysOnTop(on bool) { native.SetAlwaysOnTop(on) }
+
+// SetUtilityWindow leaves the window out of the task bar and the window list,
+// for an overlay or a palette. Call it before Open.
+func SetUtilityWindow(on bool) { native.SetUtilityWindow(on) }
+
+// SetFocusable(false) stops the window from taking the keyboard focus, for an
+// overlay that only shows something. Call it before Open.
+func SetFocusable(on bool) { native.SetFocusable(on) }
+
+// SetStartHidden opens with no window, until ShowWindow. Call it before Open.
+func SetStartHidden(on bool) { native.SetStartHidden(on) }
+
+// ShowWindow shows or hides the window while the loop keeps running.
+func (u *Ui) ShowWindow(on bool) { u.app.ShowWindow(on) }
+
+// HideWindow hides the window while the loop keeps running.
+func (u *Ui) HideWindow() { u.app.ShowWindow(false) }
+
 func (u *Ui) MinimizeWindow()  { u.app.WindowAction(0) }
 func (u *Ui) ToggleMaximized() { u.app.WindowAction(1) }
 

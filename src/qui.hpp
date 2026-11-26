@@ -214,6 +214,17 @@ inline void set_borderless(bool on) { qui_set_borderless(on ? 1 : 0); }
 // starts fully transparent, so a root box with a bg and radius gives the
 // window rounded corners. Square them off while window_maximized().
 inline void set_transparent(bool on) { qui_set_transparent(on ? 1 : 0); }
+// Call before creating the Ui: the window floats above other windows. Wayland
+// has no protocol for this, so there a window rule still has to keep it up.
+inline void set_always_on_top(bool on) { qui_set_always_on_top(on ? 1 : 0); }
+// Call before creating the Ui: the window stays out of the task bar and the
+// window list, for an overlay or a palette.
+inline void set_utility_window(bool on) { qui_set_utility_window(on ? 1 : 0); }
+// Call before creating the Ui; on by default. Off stops the window from taking
+// the keyboard focus, for an overlay that only shows something.
+inline void set_focusable(bool on) { qui_set_focusable(on ? 1 : 0); }
+// Call before creating the Ui to start with the window hidden.
+inline void set_start_hidden(bool on) { qui_set_start_hidden(on ? 1 : 0); }
 
 class Ui {
  public:
@@ -279,6 +290,10 @@ class Ui {
   // Closes the window as its close button would, ending the frame loop.
   void close_window() { qui_window_action(app_, 2); }
   bool window_maximized() const { return qui_window_maximized(app_) != 0; }
+  // Shows or hides the window while the loop keeps running. A hidden window
+  // costs nothing until the app wakes it again.
+  void show_window(bool on = true) { qui_show_window(app_, on ? 1 : 0); }
+  void hide_window() { qui_show_window(app_, 0); }
   // Makes drawers, ease and tween snap instead of animating.
   void set_reduce_motion(bool on) { reduce_motion_ = on; }
 

@@ -28,21 +28,23 @@ func SetAppID(id string) {
 	C.qui_set_app_id(cid)
 }
 
-func SetBorderless(on bool) {
-	v := C.int(0)
+func cb(on bool) C.int {
 	if on {
-		v = 1
+		return 1
 	}
-	C.qui_set_borderless(v)
+	return 0
 }
 
-func SetTransparent(on bool) {
-	v := C.int(0)
-	if on {
-		v = 1
-	}
-	C.qui_set_transparent(v)
-}
+func SetBorderless(on bool) { C.qui_set_borderless(cb(on)) }
+
+func SetTransparent(on bool) { C.qui_set_transparent(cb(on)) }
+
+func SetAlwaysOnTop(on bool)   { C.qui_set_always_on_top(cb(on)) }
+func SetUtilityWindow(on bool) { C.qui_set_utility_window(cb(on)) }
+func SetFocusable(on bool)     { C.qui_set_focusable(cb(on)) }
+func SetStartHidden(on bool)   { C.qui_set_start_hidden(cb(on)) }
+
+func (a *App) ShowWindow(on bool) { C.qui_show_window(a.app, cb(on)) }
 
 func Open(title string, width, height int) *App {
 	ctitle := C.CString(title)

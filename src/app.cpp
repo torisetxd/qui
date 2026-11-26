@@ -52,6 +52,10 @@ constexpr double kNever = std::numeric_limits<double>::infinity();
 std::string g_app_id;
 bool g_borderless = false;
 bool g_transparent = false;
+bool g_always_on_top = false;
+bool g_utility_window = false;
+bool g_focusable = true;
+bool g_start_hidden = false;
 
 constexpr uint32_t kKeyReleased = 0x100;
 
@@ -655,6 +659,10 @@ struct qui_app {
 #if !defined(__ANDROID__)
     if (g_borderless) flags |= SDL_WINDOW_BORDERLESS;
     if (g_transparent) flags |= SDL_WINDOW_TRANSPARENT;
+    if (g_always_on_top) flags |= SDL_WINDOW_ALWAYS_ON_TOP;
+    if (g_utility_window) flags |= SDL_WINDOW_UTILITY;
+    if (!g_focusable) flags |= SDL_WINDOW_NOT_FOCUSABLE;
+    if (g_start_hidden) flags |= SDL_WINDOW_HIDDEN;
 #endif
     if (requested == "cpu" || !create_gl(flags, title, width, height)) {
       if (headless) {
@@ -2327,6 +2335,16 @@ void qui_set_app_id(const char *id) { g_app_id = id ? id : ""; }
 
 void qui_set_borderless(int on) { g_borderless = on != 0; }
 void qui_set_transparent(int on) { g_transparent = on != 0; }
+void qui_set_always_on_top(int on) { g_always_on_top = on != 0; }
+void qui_set_utility_window(int on) { g_utility_window = on != 0; }
+void qui_set_focusable(int on) { g_focusable = on != 0; }
+void qui_set_start_hidden(int on) { g_start_hidden = on != 0; }
+
+void qui_show_window(qui_app *app, int on) {
+  if (!app || !app->window || app->headless) return;
+  if (on) SDL_ShowWindow(app->window);
+  else SDL_HideWindow(app->window);
+}
 
 void qui_window_action(qui_app *app, int action) {
   if (app) app->window_action(action);
