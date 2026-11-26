@@ -555,7 +555,10 @@ struct qui_app {
       SDL_GL_SetSwapInterval(1);
       backend = make_gl_backend(gl_proc, headless, es);
     }
-    if (backend) return true;
+    if (backend) {
+      engine.gpu_images = backend->owns_images();
+      return true;
+    }
     std::fprintf(stderr, "qui: OpenGL is unavailable (%s), using the CPU renderer\n", SDL_GetError());
     if (gl) SDL_GL_DestroyContext(gl);
     gl = nullptr;
@@ -568,6 +571,7 @@ struct qui_app {
     auto backend_cpu = make_cpu_backend();
     cpu = backend_cpu.get();
     backend = std::move(backend_cpu);
+    engine.gpu_images = false;
   }
 
   void open_offscreen_cpu(int width, int height) {
@@ -2203,7 +2207,14 @@ struct qui_app {
 #endif
     update_ime_area();
     size_t upload_bytes = 0;
-    const size_t upload_count = engine.fonts.pending_uploads().size();
+    const size_t upload_count = engine.fonts.pending_uploads().size() + engine.pending_image_uploads.size();
+    for (const uint64_t key : engine.pending_image_frees) backend->free_image(key);
+    engine.pending_image_frees.clear();
+    for (const ImageUpload &upload : engine.pending_image_uploads) {
+      upload_bytes += upload.pixels.size();
+      backend->upload_image(upload);
+    }
+    engine.clear_pending_image_uploads();
     for (const AtlasUpload &upload : engine.fonts.pending_uploads()) {
       upload_bytes += upload.pixels.size();
       backend->upload(upload);

@@ -100,6 +100,9 @@ enum InstanceFlag : uint32_t {
   InstGradient = 1u << 4,
   InstGradientV = 1u << 5,
   InstShadow = 1u << 6,
+  InstTexture = 1u << 7,
+  InstPixelated = 1u << 8,
+  InstBicubic = 1u << 9,
 };
 
 struct Instance {
@@ -137,6 +140,7 @@ struct Batch {
   RoundClip round;
   int page = -1;
   int shader = -1;
+  uint64_t texture = 0;
 };
 
 struct ShaderUniform {
@@ -164,11 +168,22 @@ struct FrameData {
   int width = 0, height = 0;
 };
 
+struct ImageUpload {
+  uint64_t key = 0;
+  uint32_t width = 0, height = 0;
+  std::shared_ptr<const void> owner;
+  std::span<const uint8_t> pixels;
+  bool premultiplied = false;
+};
+
 class Backend {
  public:
   virtual ~Backend() = default;
   virtual void resize(int width, int height) = 0;
   virtual void upload(const AtlasUpload &upload) = 0;
+  virtual bool owns_images() const { return false; }
+  virtual void upload_image(const ImageUpload &) {}
+  virtual void free_image(uint64_t) {}
   virtual void draw(const FrameData &frame, IRect damage, double time) = 0;
   virtual void read_pixels(std::vector<uint32_t> &out) = 0;
   virtual std::string_view shader_error(uint64_t) const { return {}; }
@@ -315,10 +330,12 @@ class Engine {
   std::vector<TextStyleSpan> span_scratch;
   // Straight RGBA the engine reads but may not own: `owner` keeps the bytes
   // alive, so a decoder's buffer can be shared with the resampler thread
-  // instead of copied.
+  // instead of copied. When `gpu_images` is true, pixels are uploaded straight
+  // to VRAM textures and released after upload; `images` keeps only dimensions.
   struct ImageSource {
     uint32_t w = 0, h = 0;
     uint64_t version = 0;
+    uint64_t written = 0;
     std::shared_ptr<const void> owner;
     std::span<const uint8_t> pixels;
   };
@@ -332,6 +349,10 @@ class Engine {
   void stage_image(uint64_t token, uint32_t w, uint32_t h, std::span<const uint8_t> pixels, std::shared_ptr<const void> owner) {
     staged_images[token] = {w, h, std::move(owner), pixels};
   }
+  bool gpu_images = false;
+  std::vector<ImageUpload> pending_image_uploads;
+  std::vector<uint64_t> pending_image_frees;
+  void clear_pending_image_uploads();
   struct ImageRegion {
     AtlasRegion region;
     int w = 0, h = 0;
@@ -439,7 +460,7 @@ class Engine {
   void add_rect(float x, float y, float w, float h, uint32_t color, float radius, float stroke, IRect clip);
   void add_gradient(float x, float y, float w, float h, uint32_t from, uint32_t to, float angle, float radius, IRect clip);
   void add_scrollbar(const Node &node, float alpha, IRect clip, float position, float fraction);
-  void add_instance(const Instance &instance, int page, IRect clip);
+  void add_instance(const Instance &instance, int page, IRect clip, uint64_t texture = 0);
   void prune();
 };
 

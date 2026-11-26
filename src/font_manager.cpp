@@ -458,6 +458,7 @@ namespace {
 std::mutex pixel_pool_lock;
 std::vector<std::vector<uint8_t>> pixel_pool;
 constexpr size_t kPoolMinBytes = 128 * 1024;
+constexpr size_t kPoolMaxBytes = 4 * 1024 * 1024;
 constexpr size_t kPoolMaxBuffers = 4;
 
 }  // namespace
@@ -476,7 +477,7 @@ std::vector<uint8_t> take_pixel_buffer(size_t bytes) {
 }
 
 void give_pixel_buffer(std::vector<uint8_t> &&buffer) {
-  if (buffer.capacity() < kPoolMinBytes) return;
+  if (buffer.capacity() < kPoolMinBytes || buffer.capacity() > kPoolMaxBytes) return;
   std::lock_guard guard(pixel_pool_lock);
   if (pixel_pool.size() >= kPoolMaxBuffers) {
     // Keep the largest buffers: they are the ones worth not reallocating.

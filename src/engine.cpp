@@ -295,10 +295,25 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         ImageSource &source = images[key];
         source.w = w;
         source.h = h;
-        const auto copy = std::make_shared<const std::vector<uint8_t>>(data.begin(), data.end());
-        source.pixels = {copy->data(), copy->size()};
-        Reaper::get().give(std::exchange(source.owner, copy));
         ++source.version;
+        source.written = frame_number + 1;
+        if (gpu_images) {
+          Reaper::get().give(std::exchange(source.owner, nullptr));
+          source.pixels = {};
+          std::erase(pending_image_frees, key);
+          ImageUpload upload{key, w, h, nullptr, {reinterpret_cast<const uint8_t *>(data.data()), data.size()}, false};
+          auto it = std::find_if(pending_image_uploads.begin(), pending_image_uploads.end(), [&](const ImageUpload &u) { return u.key == key; });
+          if (it != pending_image_uploads.end()) {
+            Reaper::get().give(std::move(it->owner));
+            *it = std::move(upload);
+          } else {
+            pending_image_uploads.push_back(std::move(upload));
+          }
+        } else {
+          const auto copy = std::make_shared<const std::vector<uint8_t>>(data.begin(), data.end());
+          source.pixels = {copy->data(), copy->size()};
+          Reaper::get().give(std::exchange(source.owner, copy));
+        }
       }
       continue;
     }
@@ -310,9 +325,24 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         ImageSource &source = images[key];
         source.w = staged->second.w;
         source.h = staged->second.h;
-        source.pixels = staged->second.pixels;
-        Reaper::get().give(std::exchange(source.owner, std::move(staged->second.owner)));
         ++source.version;
+        source.written = frame_number + 1;
+        if (gpu_images) {
+          Reaper::get().give(std::exchange(source.owner, nullptr));
+          source.pixels = {};
+          std::erase(pending_image_frees, key);
+          ImageUpload upload{key, staged->second.w, staged->second.h, std::move(staged->second.owner), staged->second.pixels, false};
+          auto it = std::find_if(pending_image_uploads.begin(), pending_image_uploads.end(), [&](const ImageUpload &u) { return u.key == key; });
+          if (it != pending_image_uploads.end()) {
+            Reaper::get().give(std::move(it->owner));
+            *it = std::move(upload);
+          } else {
+            pending_image_uploads.push_back(std::move(upload));
+          }
+        } else {
+          source.pixels = staged->second.pixels;
+          Reaper::get().give(std::exchange(source.owner, std::move(staged->second.owner)));
+        }
         staged_images.erase(staged);
       }
       continue;
@@ -330,11 +360,22 @@ void Engine::decode(const uint8_t *wire, size_t len) {
         Reaper::get().give(std::move(found->second.owner));
         images.erase(found);
       }
-      std::erase_if(image_regions, [&](const auto &kv) {
-        if (kv.second.source != key) return false;
-        if (kv.second.ok) fonts.release_rgba(kv.second.region, kv.second.alloc_w, kv.second.alloc_h);
-        return true;
-      });
+      if (gpu_images) {
+        std::erase_if(pending_image_uploads, [&](ImageUpload &u) {
+          if (u.key != key) return false;
+          Reaper::get().give(std::move(u.owner));
+          return true;
+        });
+        if (std::find(pending_image_frees.begin(), pending_image_frees.end(), key) == pending_image_frees.end()) {
+          pending_image_frees.push_back(key);
+        }
+      } else {
+        std::erase_if(image_regions, [&](const auto &kv) {
+          if (kv.second.source != key) return false;
+          if (kv.second.ok) fonts.release_rgba(kv.second.region, kv.second.alloc_w, kv.second.alloc_h);
+          return true;
+        });
+      }
       continue;
     }
     if (op == OpPalette) {
@@ -1045,19 +1086,22 @@ void Engine::prune() {
   std::erase_if(eases_, [&](const auto &kv) { return frame_number - kv.second.frame > 1; });
 }
 
-void Engine::add_instance(const Instance &instance, int page, IRect clip) {
+void Engine::add_instance(const Instance &instance, int page, IRect clip, uint64_t texture) {
   auto &batches = frame.batches;
   const bool same_clip = !batches.empty() && batches.back().clip.x == clip.x && batches.back().clip.y == clip.y &&
                          batches.back().clip.w == clip.w && batches.back().clip.h == clip.h && batches.back().round == round_clip_;
-  const bool page_ok = !batches.empty() && (page < 0 || batches.back().page < 0 || batches.back().page == page);
-  if (batches.empty() || !same_clip || !page_ok || batches.back().shader >= 0) {
+  const bool target_ok = !batches.empty() && (texture != 0
+                                                  ? batches.back().texture == texture
+                                                  : (batches.back().texture == 0 && (page < 0 || batches.back().page < 0 || batches.back().page == page)));
+  if (batches.empty() || !same_clip || !target_ok || batches.back().shader >= 0) {
     Batch batch;
     batch.first = static_cast<uint32_t>(frame.instances.size());
     batch.clip = clip;
     batch.round = round_clip_;
     batch.page = page;
+    batch.texture = texture;
     batches.push_back(batch);
-  } else if (page >= 0) {
+  } else if (texture == 0 && page >= 0) {
     batches.back().page = page;
   }
   frame.instances.push_back(instance);
@@ -1201,6 +1245,23 @@ void Engine::paint_text(const Node &node, float opacity, IRect clip, float dx, f
         if (!extent(span, lo, hi)) continue;
         if (span.flags & SpanImage) {
           const int size = static_cast<int>(std::round(line_height * 0.92f));
+          if (gpu_images) {
+            const auto source = images.find(span.image);
+            if (source != images.end() && size > 0 && source->second.w > 0 && source->second.h > 0) {
+              const float sw = static_cast<float>(source->second.w), sh = static_cast<float>(source->second.h);
+              const float scale = std::min(static_cast<float>(size) / sw, static_cast<float>(size) / sh);
+              const int dw = std::max(1, static_cast<int>(std::round(sw * scale)));
+              const int dh = std::max(1, static_cast<int>(std::round(sh * scale)));
+              const auto tint = std::min(255u, static_cast<uint32_t>(opacity * 255.f + 0.5f));
+              const Instance instance{std::round(lo + (hi - lo - static_cast<float>(dw)) / 2), std::round(y + (line_height - static_cast<float>(dh)) / 2), static_cast<float>(dw), static_cast<float>(dh),
+                                      0.f, 0.f, 1.f, 1.f, 0x00ffffffu | (tint << 24), InstTexture};
+              if (source->second.written == frame_number) {
+                image_damage_ = unite(image_damage_, IRect{static_cast<int>(std::floor(instance.x)), static_cast<int>(std::floor(instance.y)), static_cast<int>(std::ceil(instance.w)) + 1, static_cast<int>(std::ceil(instance.h)) + 1});
+              }
+              add_instance(instance, -1, clip, span.image);
+            }
+            continue;
+          }
           const ImageRegion &region = image_region_for(span.image, FitContain, size, size);
           if (region.ok) {
             const float page_w = static_cast<float>(fonts.page_width(region.region.page)), page_h = static_cast<float>(fonts.page_height(region.region.page));
@@ -1524,7 +1585,9 @@ IRect Engine::swap_and_damage() {
     }
     for (size_t i = 0; i < frame.batches.size(); ++i) {
       const IRect &a = frame.batches[i].clip, &b = previous.batches[i].clip;
-      if (a.x != b.x || a.y != b.y || a.w != b.w || a.h != b.h || frame.batches[i].count != previous.batches[i].count || !(frame.batches[i].round == previous.batches[i].round)) {
+      if (a.x != b.x || a.y != b.y || a.w != b.w || a.h != b.h || frame.batches[i].count != previous.batches[i].count ||
+          frame.batches[i].page != previous.batches[i].page || frame.batches[i].texture != previous.batches[i].texture ||
+          !(frame.batches[i].round == previous.batches[i].round)) {
         damage = full;
         break;
       }
@@ -1787,6 +1850,11 @@ struct Engine::Resampler {
 
 Engine::~Engine() = default;
 
+void Engine::clear_pending_image_uploads() {
+  for (ImageUpload &upload : pending_image_uploads) Reaper::get().give(std::move(upload.owner));
+  pending_image_uploads.clear();
+}
+
 void Engine::drain_resamples() {
   if (!resampler_) return;
   constexpr size_t kUploadBudget = 1u << 20;
@@ -1953,6 +2021,43 @@ void Engine::paint_image(const Node &node, float x0, float y0, float w, float h,
   const float inner_x = x0 + std::round(node.pad[3] * dpr), inner_y = y0 + std::round(node.pad[0] * dpr);
   const int box_w = static_cast<int>(w - std::round((node.pad[1] + node.pad[3]) * dpr));
   const int box_h = static_cast<int>(h - std::round((node.pad[0] + node.pad[2]) * dpr));
+  if (gpu_images) {
+    const auto source = images.find(node.image);
+    if (source == images.end() || box_w <= 0 || box_h <= 0 || source->second.w == 0 || source->second.h == 0) return;
+    const ImageSource &img = source->second;
+    const float sw = static_cast<float>(img.w), sh = static_cast<float>(img.h);
+    const uint8_t fit = node.fit & 3;
+    const uint8_t sampling = node.fit & (FitPixelated | FitBicubic);
+    int shown_w = box_w, shown_h = box_h;
+    float u0 = 0.f, v0 = 0.f, u1 = 1.f, v1 = 1.f;
+    if (fit == FitContain) {
+      const float scale = std::min(static_cast<float>(box_w) / sw, static_cast<float>(box_h) / sh);
+      shown_w = std::max(1, static_cast<int>(std::round(sw * scale)));
+      shown_h = std::max(1, static_cast<int>(std::round(sh * scale)));
+    } else if (fit == FitCover) {
+      const float scale = std::max(static_cast<float>(box_w) / sw, static_cast<float>(box_h) / sh);
+      const float view_w = static_cast<float>(box_w) / scale, view_h = static_cast<float>(box_h) / scale;
+      u0 = (sw - view_w) / (2.f * sw);
+      u1 = (sw + view_w) / (2.f * sw);
+      v0 = (sh - view_h) / (2.f * sh);
+      v1 = (sh + view_h) / (2.f * sh);
+    }
+    const float dx = inner_x + static_cast<float>(box_w - shown_w) / 2, dy = inner_y + static_cast<float>(box_h - shown_h) / 2;
+    const auto tint = static_cast<uint32_t>(std::clamp(alpha, 0.f, 1.f) * 255.f + 0.5f);
+    uint32_t flags = InstTexture;
+    if (sampling & FitPixelated) flags |= InstPixelated;
+    else if (sampling & FitBicubic) flags |= InstBicubic;
+    const Instance instance{std::round(dx), std::round(dy), static_cast<float>(shown_w), static_cast<float>(shown_h),
+                            u0, v0, u1, v1, 0x00ffffffu | (tint << 24), flags};
+    if (img.written == frame_number) {
+      image_damage_ = unite(image_damage_, IRect{static_cast<int>(std::floor(instance.x)), static_cast<int>(std::floor(instance.y)), static_cast<int>(std::ceil(instance.w)) + 1, static_cast<int>(std::ceil(instance.h)) + 1});
+    }
+    const RoundClip outer = round_clip_;
+    if (radius > 0) round_clip_ = {static_cast<int>(inner_x), static_cast<int>(inner_y), box_w, box_h, std::max(0.f, radius - std::round(node.pad[0] * dpr))};
+    add_instance(instance, -1, clip, node.image);
+    round_clip_ = outer;
+    return;
+  }
   const ImageRegion &region = image_region(node, box_w, box_h);
   if (!region.ok) return;
   const int shown_w = region.shown_w > 0 ? region.shown_w : region.w, shown_h = region.shown_h > 0 ? region.shown_h : region.h;

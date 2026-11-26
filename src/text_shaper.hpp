@@ -75,7 +75,7 @@ class TextShaper {
   uint64_t cache_misses() const { return cache_misses_; }
 
  private:
-  static constexpr size_t kMaximumCacheBytes = 64u * 1024u * 1024u;
+  static constexpr size_t kMaximumCacheBytes = 8u * 1024u * 1024u;
   static constexpr size_t kMaximumCacheEntries = 4096;
 
   struct Run {

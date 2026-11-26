@@ -240,7 +240,12 @@ class Ui {
     nodes_ = 0;
     ++frame_count_;
     std::erase_if(tweens_, [&](const auto &kv) { return kv.second.seen + 1 < frame_count_; });
-    buf_.clear();
+    if (buf_.capacity() > (1u << 20)) {
+      std::vector<uint8_t>().swap(buf_);
+      buf_.reserve(1 << 16);
+    } else {
+      buf_.clear();
+    }
     stack_.clear();
     stack_.push_back({kSeed, 0});
     u8(wire::OpFrame);
@@ -998,7 +1003,8 @@ class Ui {
   void flush_images() {
     if (pending_images_.empty()) return;
     buf_.insert(buf_.begin() + static_cast<std::ptrdiff_t>(image_at_), pending_images_.begin(), pending_images_.end());
-    pending_images_.clear();
+    if (pending_images_.capacity() > 256u * 1024u) std::vector<uint8_t>().swap(pending_images_);
+    else pending_images_.clear();
   }
 
   void emit_palette() {

@@ -5,6 +5,7 @@
 #include "gl_api.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -31,8 +32,13 @@ namespace {
   X(CompileShader, COMPILESHADER)                                 \
   X(CreateProgram, CREATEPROGRAM)                                 \
   X(CreateShader, CREATESHADER)                                   \
+  X(DeleteBuffers, DELETEBUFFERS)                                 \
+  X(DeleteFramebuffers, DELETEFRAMEBUFFERS)                       \
   X(DeleteProgram, DELETEPROGRAM)                                 \
+  X(DeleteRenderbuffers, DELETERENDERBUFFERS)                     \
   X(DeleteShader, DELETESHADER)                                   \
+  X(DeleteTextures, DELETETEXTURES)                               \
+  X(DeleteVertexArrays, DELETEVERTEXARRAYS)                       \
   X(Disable, DISABLE)                                             \
   X(DrawArrays, DRAWARRAYS)                                       \
   X(DrawArraysInstanced, DRAWARRAYSINSTANCED)                     \
@@ -40,17 +46,20 @@ namespace {
   X(EnableVertexAttribArray, ENABLEVERTEXATTRIBARRAY)             \
   X(FramebufferRenderbuffer, FRAMEBUFFERRENDERBUFFER)             \
   X(GenBuffers, GENBUFFERS)                                       \
+  X(GenerateMipmap, GENERATEMIPMAP)                               \
   X(GenFramebuffers, GENFRAMEBUFFERS)                             \
   X(GenRenderbuffers, GENRENDERBUFFERS)                           \
   X(GenTextures, GENTEXTURES)                                     \
   X(GenVertexArrays, GENVERTEXARRAYS)                             \
   X(GetActiveUniform, GETACTIVEUNIFORM)                           \
+  X(GetIntegerv, GETINTEGERV)                                     \
   X(GetProgramInfoLog, GETPROGRAMINFOLOG)                         \
   X(GetProgramiv, GETPROGRAMIV)                                   \
   X(GetShaderInfoLog, GETSHADERINFOLOG)                           \
   X(GetShaderiv, GETSHADERIV)                                     \
   X(GetUniformLocation, GETUNIFORMLOCATION)                       \
   X(LinkProgram, LINKPROGRAM)                                     \
+  X(MapBufferRange, MAPBUFFERRANGE)                               \
   X(PixelStorei, PIXELSTOREI)                                     \
   X(ReadPixels, READPIXELS)                                       \
   X(RenderbufferStorage, RENDERBUFFERSTORAGE)                     \
@@ -64,6 +73,7 @@ namespace {
   X(Uniform2f, UNIFORM2F)                                         \
   X(Uniform3f, UNIFORM3F)                                         \
   X(Uniform4f, UNIFORM4F)                                         \
+  X(UnmapBuffer, UNMAPBUFFER)                                     \
   X(UseProgram, USEPROGRAM)                                       \
   X(VertexAttribDivisor, VERTEXATTRIBDIVISOR)                     \
   X(VertexAttribIPointer, VERTEXATTRIBIPOINTER)                   \
@@ -145,6 +155,14 @@ float rounded_dist(vec2 p, vec2 size, float radius) {
   vec2 q = abs(p - half_size) - half_size + vec2(r);
   return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
+vec4 catmull(float t) {
+  float t2 = t * t;
+  float t3 = t2 * t;
+  return vec4(-0.5 * t3 + t2 - 0.5 * t,
+               1.5 * t3 - 2.5 * t2 + 1.0,
+              -1.5 * t3 + 2.0 * t2 + 0.5 * t,
+               0.5 * t3 - 0.5 * t2);
+}
 void main() {
   const uint solid = 1u;
   const uint color_glyph = 4u;
@@ -152,6 +170,47 @@ void main() {
   const uint gradient = 16u;
   const uint gradient_v = 32u;
   const uint shadow = 64u;
+  const uint direct_tex = 128u;
+  const uint pixelated = 256u;
+  const uint bicubic = 512u;
+  if ((v_flags & direct_tex) != 0u) {
+    vec2 uv = mix(v_params, v_end, v_local / max(v_size, vec2(1.0)));
+    vec4 texel;
+    if ((v_flags & pixelated) != 0u) {
+      ivec2 tsz = textureSize(u_atlas, 0);
+      ivec2 tc = clamp(ivec2(floor(uv * vec2(tsz))), ivec2(0), tsz - ivec2(1));
+      texel = texelFetch(u_atlas, tc, 0);
+    } else if ((v_flags & bicubic) != 0u) {
+      vec2 tsz = vec2(textureSize(u_atlas, 0));
+      vec2 span = abs(v_end - v_params) * tsz;
+      if (span.x < v_size.x || span.y < v_size.y) {
+        vec2 p = uv * tsz - 0.5;
+        vec2 f = fract(p);
+        ivec2 base = ivec2(floor(p));
+        ivec2 lim = ivec2(tsz) - ivec2(1);
+        vec4 wx = catmull(f.x);
+        vec4 wy = catmull(f.y);
+        vec4 sum = vec4(0.0);
+        for (int j = 0; j < 4; ++j) {
+          vec4 row = vec4(0.0);
+          int sy = clamp(base.y + j - 1, 0, lim.y);
+          for (int i = 0; i < 4; ++i) {
+            int sx = clamp(base.x + i - 1, 0, lim.x);
+            row += texelFetch(u_atlas, ivec2(sx, sy), 0) * wx[i];
+          }
+          sum += row * wy[j];
+        }
+        float a = clamp(sum.a, 0.0, 1.0);
+        texel = vec4(clamp(sum.rgb, vec3(0.0), vec3(a)), a);
+      } else {
+        texel = texture(u_atlas, uv);
+      }
+    } else {
+      texel = texture(u_atlas, uv);
+    }
+    out_color = texel * v_color.a * clip_cover();
+    return;
+  }
   if ((v_flags & shadow) != 0u) {
     float blur = v_params.y;
     vec2 box = v_size - vec2(blur * 2.0);
@@ -246,10 +305,70 @@ void main() {
 )";
 
 constexpr size_t kMaxPrograms = 32;
+constexpr size_t kMaxRetainedStagingBytes = 2 * 1024 * 1024;
+constexpr size_t kSmallImageBytes = 64 * 1024;
+
+inline uint8_t mul255(uint32_t c, uint32_t a) {
+  const uint32_t v = c * a + 128;
+  return static_cast<uint8_t>((v + (v >> 8)) >> 8);
+}
+
+void copy_premultiply(uint8_t *dst, const uint8_t *src, size_t pixels) {
+  for (size_t i = 0; i < pixels; ++i, src += 4, dst += 4) {
+    const uint32_t a = src[3];
+    if (a == 255) {
+      std::memcpy(dst, src, 4);
+    } else if (a == 0) {
+      dst[0] = dst[1] = dst[2] = dst[3] = 0;
+    } else {
+      dst[0] = mul255(src[0], a);
+      dst[1] = mul255(src[1], a);
+      dst[2] = mul255(src[2], a);
+      dst[3] = static_cast<uint8_t>(a);
+    }
+  }
+}
+
+void downsample_premultiplied(const uint8_t *src, uint32_t sw, uint32_t sh, bool premultiplied, uint32_t dw, uint32_t dh, std::vector<uint8_t> &out) {
+  out.resize(static_cast<size_t>(dw) * dh * 4);
+  const float sx_step = static_cast<float>(sw) / static_cast<float>(dw);
+  const float sy_step = static_cast<float>(sh) / static_cast<float>(dh);
+  for (uint32_t y = 0; y < dh; ++y) {
+    const uint32_t y0 = static_cast<uint32_t>(static_cast<float>(y) * sy_step);
+    const uint32_t y1 = std::min(sh, std::max(y0 + 1, static_cast<uint32_t>(std::ceil(static_cast<float>(y + 1) * sy_step))));
+    for (uint32_t x = 0; x < dw; ++x) {
+      const uint32_t x0 = static_cast<uint32_t>(static_cast<float>(x) * sx_step);
+      const uint32_t x1 = std::min(sw, std::max(x0 + 1, static_cast<uint32_t>(std::ceil(static_cast<float>(x + 1) * sx_step))));
+      uint32_t sum[4] = {};
+      for (uint32_t sy = y0; sy < y1; ++sy) {
+        const uint8_t *p = src + (static_cast<size_t>(sy) * sw + x0) * 4;
+        for (uint32_t sx = x0; sx < x1; ++sx, p += 4) {
+          if (premultiplied || p[3] == 255) {
+            sum[0] += p[0];
+            sum[1] += p[1];
+            sum[2] += p[2];
+            sum[3] += p[3];
+          } else if (p[3] > 0) {
+            sum[0] += mul255(p[0], p[3]);
+            sum[1] += mul255(p[1], p[3]);
+            sum[2] += mul255(p[2], p[3]);
+            sum[3] += p[3];
+          }
+        }
+      }
+      const uint32_t count = (x1 - x0) * (y1 - y0);
+      uint8_t *dst = out.data() + (static_cast<size_t>(y) * dw + x) * 4;
+      for (int c = 0; c < 4; ++c) dst[c] = static_cast<uint8_t>((sum[c] + count / 2) / count);
+    }
+  }
+}
 
 class GlBackend final : public Backend {
  public:
   GlBackend(const Gl &gl, bool offscreen, bool es) : gl_(gl), offscreen_(offscreen), version_(es ? "#version 300 es\n" : "#version 330 core\n") {
+    GLint max_tex = 2048;
+    gl_.GetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex);
+    max_tex_size_ = static_cast<uint32_t>(std::max<GLint>(max_tex, 2048));
     program_ = link(kUiVertex, kUiFragment, "ui");
     u_fb_ = gl_.GetUniformLocation(program_, "u_fb");
     u_atlas_ = gl_.GetUniformLocation(program_, "u_atlas");
@@ -264,6 +383,114 @@ class GlBackend final : public Backend {
       gl_.VertexAttribDivisor(i, 1);
     }
     gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  }
+
+  ~GlBackend() override {
+    for (const auto &[key, tex] : textures_)
+      if (tex.id) gl_.DeleteTextures(1, &tex.id);
+    for (GLuint tex : pages_)
+      if (tex) gl_.DeleteTextures(1, &tex);
+    for (GLuint buf : staging_)
+      if (buf) gl_.DeleteBuffers(1, &buf);
+    for (const auto &[hash, prog] : programs_)
+      if (prog.id) gl_.DeleteProgram(prog.id);
+    if (program_) gl_.DeleteProgram(program_);
+    if (vbo_) gl_.DeleteBuffers(1, &vbo_);
+    if (vao_) gl_.DeleteVertexArrays(1, &vao_);
+    if (color_) gl_.DeleteRenderbuffers(1, &color_);
+    if (fbo_) gl_.DeleteFramebuffers(1, &fbo_);
+  }
+
+  bool owns_images() const override { return true; }
+
+  void upload_image(const ImageUpload &upload) override {
+    if (upload.width == 0 || upload.height == 0) return;
+    const size_t expected = static_cast<size_t>(upload.width) * upload.height * 4;
+    if (upload.pixels.size() != expected) return;
+
+    uint32_t w = upload.width, h = upload.height;
+    const uint8_t *src = upload.pixels.data();
+    bool premultiplied = upload.premultiplied;
+    std::vector<uint8_t> scaled;
+    if (w > max_tex_size_ || h > max_tex_size_) {
+      const double scale = std::min(static_cast<double>(max_tex_size_) / w, static_cast<double>(max_tex_size_) / h);
+      w = std::clamp(static_cast<uint32_t>(w * scale), 1u, max_tex_size_);
+      h = std::clamp(static_cast<uint32_t>(h * scale), 1u, max_tex_size_);
+      downsample_premultiplied(src, upload.width, upload.height, premultiplied, w, h, scaled);
+      src = scaled.data();
+      premultiplied = true;
+    }
+
+    Texture &tex = textures_[upload.key];
+    gl_.ActiveTexture(GL_TEXTURE0);
+    if (!tex.id) {
+      gl_.GenTextures(1, &tex.id);
+      gl_.BindTexture(GL_TEXTURE_2D, tex.id);
+      gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+      gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    } else {
+      gl_.BindTexture(GL_TEXTURE_2D, tex.id);
+    }
+
+    const size_t bytes = static_cast<size_t>(w) * h * 4;
+    const bool same_size = tex.w == w && tex.h == h;
+    const auto submit = [&](const void *data) {
+      if (same_size) {
+        gl_.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h), GL_RGBA, GL_UNSIGNED_BYTE, data);
+      } else {
+        gl_.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        tex.w = w;
+        tex.h = h;
+      }
+    };
+
+    if (bytes < kSmallImageBytes) {
+      if (premultiplied) {
+        submit(src);
+      } else {
+        scratch_.resize(bytes);
+        copy_premultiply(scratch_.data(), src, static_cast<size_t>(w) * h);
+        submit(scratch_.data());
+      }
+      gl_.GenerateMipmap(GL_TEXTURE_2D);
+      return;
+    }
+
+    const size_t slot = staging_next_;
+    staging_next_ = (staging_next_ + 1) % kStagingBuffers;
+    if (!staging_[slot]) gl_.GenBuffers(1, &staging_[slot]);
+    gl_.BindBuffer(GL_PIXEL_UNPACK_BUFFER, staging_[slot]);
+    if (staging_capacity_[slot] < bytes) {
+      constexpr size_t kRound = 256 * 1024;
+      staging_capacity_[slot] = (bytes + kRound - 1) / kRound * kRound;
+      gl_.BufferData(GL_PIXEL_UNPACK_BUFFER, static_cast<GLsizeiptr>(staging_capacity_[slot]), nullptr, GL_STREAM_DRAW);
+    }
+    if (premultiplied) {
+      gl_.BufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), src);
+    } else if (void *mapped = gl_.MapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT)) {
+      copy_premultiply(static_cast<uint8_t *>(mapped), src, static_cast<size_t>(w) * h);
+      gl_.UnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+    } else {
+      std::vector<uint8_t> tmp(bytes);
+      copy_premultiply(tmp.data(), src, static_cast<size_t>(w) * h);
+      gl_.BufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), tmp.data());
+    }
+    submit(nullptr);
+    if (staging_capacity_[slot] > kMaxRetainedStagingBytes) {
+      gl_.BufferData(GL_PIXEL_UNPACK_BUFFER, 0, nullptr, GL_STREAM_DRAW);
+      staging_capacity_[slot] = 0;
+    }
+    gl_.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    gl_.GenerateMipmap(GL_TEXTURE_2D);
+  }
+
+  void free_image(uint64_t key) override {
+    const auto it = textures_.find(key);
+    if (it == textures_.end()) return;
+    if (it->second.id) gl_.DeleteTextures(1, &it->second.id);
+    textures_.erase(it);
   }
 
   void resize(int width, int height) override {
@@ -318,6 +545,10 @@ class GlBackend final : public Backend {
     }
     gl_.BufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), upload.pixels.data());
     gl_.TexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    if (staging_capacity_[slot] > kMaxRetainedStagingBytes) {
+      gl_.BufferData(GL_PIXEL_UNPACK_BUFFER, 0, nullptr, GL_STREAM_DRAW);
+      staging_capacity_[slot] = 0;
+    }
     gl_.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
   }
 
@@ -347,9 +578,15 @@ class GlBackend final : public Backend {
         continue;
       }
       if (batch.count == 0) continue;
+      if (batch.texture != 0) {
+        const auto it = textures_.find(batch.texture);
+        if (it == textures_.end() || !it->second.id) continue;
+        gl_.BindTexture(GL_TEXTURE_2D, it->second.id);
+      } else if (batch.page >= 0 && static_cast<size_t>(batch.page) < pages_.size()) {
+        gl_.BindTexture(GL_TEXTURE_2D, pages_[static_cast<size_t>(batch.page)]);
+      }
       gl_.Uniform4f(u_clip_, static_cast<float>(batch.round.x), static_cast<float>(batch.round.y), static_cast<float>(batch.round.w), static_cast<float>(batch.round.h));
       gl_.Uniform1f(u_clip_radius_, batch.round.radius);
-      if (batch.page >= 0 && static_cast<size_t>(batch.page) < pages_.size()) gl_.BindTexture(GL_TEXTURE_2D, pages_[static_cast<size_t>(batch.page)]);
       const auto base = static_cast<uintptr_t>(batch.first) * sizeof(Instance);
       const auto at = [&](uintptr_t offset) { return reinterpret_cast<const void *>(base + offset); };
       gl_.VertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(Instance), at(offsetof(Instance, x)));
@@ -509,17 +746,25 @@ class GlBackend final : public Backend {
     gl_.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
   }
 
+  struct Texture {
+    GLuint id = 0;
+    uint32_t w = 0, h = 0;
+  };
+
   Gl gl_;
   bool offscreen_;
   std::string version_;
+  uint32_t max_tex_size_ = 2048;
   static constexpr size_t kStagingBuffers = 3;
   GLuint staging_[kStagingBuffers] = {0, 0, 0};
   size_t staging_capacity_[kStagingBuffers] = {0, 0, 0};
   size_t staging_next_ = 0;
+  std::vector<uint8_t> scratch_;
   GLuint program_ = 0, vao_ = 0, vbo_ = 0, fbo_ = 0, color_ = 0;
   GLint u_fb_ = -1, u_atlas_ = -1, u_clip_ = -1, u_clip_radius_ = -1;
   int width_ = 0, height_ = 0;
   std::vector<GLuint> pages_;
+  std::unordered_map<uint64_t, Texture> textures_;
   std::unordered_map<uint64_t, Program> programs_;
   uint64_t use_clock_ = 0;
   bool compiled_ = false;
