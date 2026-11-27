@@ -2172,14 +2172,12 @@ struct qui_app {
     if (!wire_path.empty()) last_wire.assign(wire, wire + len);
     if (window && !headless) read_size();
     engine.decode(wire, len);
-    const double t_decode = now();
     engine.insets[0] = inset_top;
     engine.insets[1] = inset_right;
     engine.insets[2] = inset_bottom;
     engine.insets[3] = inset_left;
     engine.time = clock();
     engine.layout(logical_w, logical_h, dpr);
-    const double t_layout = now();
     if (engine.menu_open != menu_open) {
       menu_open = engine.menu_open;
       if (menu_open) menu_return = focused;
@@ -2199,8 +2197,6 @@ struct qui_app {
     }
     engine.ui = {shown_hovered(), shown_pressed(), focused, focus_ring, headless || caret_on, scrollbar_dragged ? scrollbar_dragged : scrollbar_hovered};
     engine.paint();
-    const double t_paint = now();
-    const double raster_ms = engine.fonts.take_raster_ms();
     ease_next = engine.easing ? clock() + (cpu ? kFlingStep : 0.004) : 0;
     if (engine.selection.empty()) engine.selection_cache.clear();
     else engine.selection_cache = engine.selected_text();
@@ -2214,22 +2210,12 @@ struct qui_app {
     stop_text_pending = false;
 #endif
     update_ime_area();
-    size_t upload_bytes = 0;
-    const size_t upload_count = engine.fonts.pending_uploads().size() + engine.pending_image_uploads.size();
     for (const uint64_t key : engine.pending_image_frees) backend->free_image(key);
     engine.pending_image_frees.clear();
-    for (const ImageUpload &upload : engine.pending_image_uploads) {
-      upload_bytes += upload.pixels.size();
-      backend->upload_image(upload);
-    }
+    for (const ImageUpload &upload : engine.pending_image_uploads) backend->upload_image(upload);
     engine.clear_pending_image_uploads();
-    for (const AtlasUpload &upload : engine.fonts.pending_uploads()) {
-      upload_bytes += upload.pixels.size();
-      backend->upload(upload);
-    }
+    for (const AtlasUpload &upload : engine.fonts.pending_uploads()) backend->upload(upload);
     engine.fonts.clear_pending_uploads();
-    const double t_upload = now();
-
     backend->resize(pixel_w, pixel_h);
     IRect damage = engine.swap_and_damage();
     const IRect full{0, 0, pixel_w, pixel_h};
@@ -2239,45 +2225,8 @@ struct qui_app {
     }
     if (!damage.empty()) backend->draw(engine.previous, damage, headless ? 1.0 : now());
     if (backend->take_compiled()) dirty = true;
-    const double t_draw = now();
-    engine_ms = static_cast<float>((t_draw - began) * 1000);
+    engine_ms = static_cast<float>((now() - began) * 1000);
     if (!damage.empty() && !headless) present(gl ? full : damage);
-    static const double slow_s = [] {
-      const char *v = std::getenv("QUI_SLOW_MS");
-      return v ? std::atof(v) / 1000.0 : 0.0083;
-    }();
-    {
-      struct Window {
-        double since = 0, decode = 0, layout = 0, paint = 0, upload = 0, draw = 0, present = 0;
-        size_t frames = 0, uploads = 0, upload_kib = 0, instances = 0;
-        uint64_t async0 = 0, sync0 = 0;
-      };
-      static Window win;
-      const double t_now = now();
-      if (win.since == 0) win.since = t_now;
-      ++win.frames;
-      win.decode += t_decode - began;
-      win.layout += t_layout - t_decode;
-      win.paint += t_paint - t_layout;
-      win.upload += t_upload - t_paint;
-      win.draw += t_draw - t_upload;
-      win.present += t_now - t_draw;
-      win.uploads += upload_count;
-      win.upload_kib += upload_bytes / 1024;
-      win.instances += engine.previous.instances.size();
-      if (t_now - win.since >= 2.0) {
-        if (!headless && win.frames >= 10) {
-          const double n = static_cast<double>(win.frames);
-          std::fprintf(stderr, "qui: %zu frames in %.1f s (%.0f fps), avg ms: decode %.1f layout %.1f paint %.1f upload %.1f draw %.1f present %.1f; per frame %.1f uploads, %.0f KiB, %.0f instances; image scaling +%llu async +%llu inline\n", win.frames, t_now - win.since, n / (t_now - win.since), win.decode * 1000 / n, win.layout * 1000 / n, win.paint * 1000 / n, win.upload * 1000 / n, win.draw * 1000 / n, win.present * 1000 / n, static_cast<double>(win.uploads) / n, static_cast<double>(win.upload_kib) / n, static_cast<double>(win.instances) / n, static_cast<unsigned long long>(engine.stat_async_resamples - win.async0), static_cast<unsigned long long>(engine.stat_sync_resamples - win.sync0));
-        }
-        win = Window{};
-        win.since = t_now;
-        win.async0 = engine.stat_async_resamples;
-        win.sync0 = engine.stat_sync_resamples;
-      }
-    }
-    if (const double t_end = now(); (!headless || slow_s < 0.0083) && t_end - began > slow_s)
-      std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; glyph raster %.0f ms, image scale %.0f ms; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, raster_ms, engine.sync_resample_ms, len / 1024, engine.previous.instances.size());
 #if defined(__ANDROID__)
     if (const uint32_t c = engine.previous.clear; !headless) {
       const float luma = 0.2126f * static_cast<float>((c >> 24) & 0xff) + 0.7152f * static_cast<float>((c >> 16) & 0xff) + 0.0722f * static_cast<float>((c >> 8) & 0xff);

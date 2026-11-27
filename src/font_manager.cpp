@@ -1,6 +1,5 @@
 //go:build cgo
 
-#include <chrono>
 #include "font_manager.hpp"
 #include "system_fonts.hpp"
 
@@ -529,12 +528,6 @@ const CachedGlyph *FontManager::get_glyph(FontInstanceId font,
     return &existing->second;
   }
   ++glyph_cache_misses_;
-  struct RasterTimer {
-    double &total;
-    std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
-    ~RasterTimer() { total += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count(); }
-  } raster_timer{raster_ms_};
-
   CachedGlyph glyph;
   glyph.font = font;
   glyph.glyph_id = glyph_id;

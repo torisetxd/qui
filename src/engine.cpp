@@ -1,7 +1,6 @@
 //go:build cgo
 
 #if defined(__linux__)
-#include <chrono>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -1058,7 +1057,6 @@ void Engine::layout(float width, float height, float scale) {
   ++frame_number;
   evict_image_regions();
   wants_another_frame = false;
-  sync_resample_ms = 0;
   Node &root = nodes[0];
   root.w_val = width;
   root.h_val = height;
@@ -1945,17 +1943,13 @@ const Engine::ImageRegion &Engine::image_region_for(uint64_t key, uint8_t fit, i
     if (!region.in_flight) {
       if (!resampler_) resampler_ = std::make_unique<Resampler>(on_async);
       region.in_flight = true;
-      ++stat_async_resamples;
       resampler_->push({cache_key, key, img.version, img.owner, img.pixels, img.w, img.h, crop, dw, dh, sampling, {}});
     }
     return region;
   }
-  ++stat_sync_resamples;
   std::vector<uint8_t> pixels = take_pixel_buffer(static_cast<size_t>(dw) * static_cast<size_t>(dh) * 4);
-  const auto resample_began = std::chrono::steady_clock::now();
   resample(img.pixels, img.w, img.h, crop, dw, dh, sampling, pixels);
   store_region(region, key, img.version, dw, dh, std::move(pixels));
-  sync_resample_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - resample_began).count();
   return region;
 }
 

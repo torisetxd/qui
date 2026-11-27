@@ -4,7 +4,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 struct hb_font_t;
@@ -138,8 +137,6 @@ class FontManager {
   uint64_t glyph_rasterizations() const { return glyph_rasterizations_; }
   uint64_t glyph_cache_hits() const { return glyph_cache_hits_; }
   uint64_t glyph_cache_misses() const { return glyph_cache_misses_; }
-  // Time spent rasterizing glyphs since the last call, for frame diagnostics.
-  double take_raster_ms() { return std::exchange(raster_ms_, 0.0); }
 
  private:
   static constexpr uint32_t kDefaultAtlasSize = 512;
@@ -186,7 +183,6 @@ class FontManager {
   uint64_t glyph_rasterizations_ = 0;
   uint64_t glyph_cache_hits_ = 0;
   uint64_t glyph_cache_misses_ = 0;
-  double raster_ms_ = 0.0;
 
   bool allocate_atlas_rect(uint32_t width, uint32_t height,
                            uint32_t &page, uint32_t &x, uint32_t &y);
