@@ -52,6 +52,118 @@ func (u *Ui) ToggleMaximized() { u.app.WindowAction(1) }
 func (u *Ui) CloseWindow() { u.app.WindowAction(2) }
 
 func (u *Ui) WindowMaximized() bool { return u.app.WindowMaximized() }
+func (u *Ui) WindowVisible() bool   { return u.app.WindowVisible() }
+func (u *Ui) WindowMinimized() bool { return u.app.WindowMinimized() }
+
+type CloseAction int
+
+const (
+	CloseQuit CloseAction = iota
+	CloseHide
+	CloseMinimize
+)
+
+// SetCloseAction controls what closing the window does: CloseQuit exits the
+// loop (default), CloseHide hides the window, and CloseMinimize minimizes it
+// to the taskbar.
+func (u *Ui) SetCloseAction(action CloseAction) { u.app.SetCloseAction(int(action)) }
+
+// Quit exits the frame loop even when SetCloseAction is not CloseQuit.
+func (u *Ui) Quit() { u.app.Quit() }
+
+type Tray struct{ t *native.Tray }
+type TrayMenu struct{ m *native.TrayMenu }
+type TrayEntry struct{ e *native.TrayEntry }
+
+func (u *Ui) NewTray(tooltip string) *Tray { return &Tray{t: u.app.NewTray(tooltip)} }
+func (t *Tray) Close()                     { t.t.Close() }
+func (t *Tray) Valid() bool                { return t != nil && t.t.Valid() }
+func (t *Tray) SetIcon(w, h int, rgba []byte) {
+	t.t.SetIcon(w, h, rgba)
+}
+func (t *Tray) SetTooltip(tooltip string) { t.t.SetTooltip(tooltip) }
+func (t *Tray) Menu() *TrayMenu {
+	m := t.t.Menu()
+	if m == nil {
+		return nil
+	}
+	return &TrayMenu{m: m}
+}
+func (t *Tray) NextClick() (uint32, bool) { return t.t.NextClick() }
+
+func (m *TrayMenu) AddItem(label string, id uint32) *TrayEntry {
+	return m.InsertItem(-1, label, id)
+}
+func (m *TrayMenu) InsertItem(pos int, label string, id uint32) *TrayEntry {
+	if m == nil {
+		return nil
+	}
+	if e := m.m.AddItem(pos, label, id); e != nil {
+		return &TrayEntry{e: e}
+	}
+	return nil
+}
+func (m *TrayMenu) AddCheck(label string, checked bool, id uint32) *TrayEntry {
+	return m.InsertCheck(-1, label, checked, id)
+}
+func (m *TrayMenu) InsertCheck(pos int, label string, checked bool, id uint32) *TrayEntry {
+	if m == nil {
+		return nil
+	}
+	if e := m.m.AddCheck(pos, label, checked, id); e != nil {
+		return &TrayEntry{e: e}
+	}
+	return nil
+}
+func (m *TrayMenu) AddSubmenu(label string) (*TrayEntry, *TrayMenu) {
+	return m.InsertSubmenu(-1, label)
+}
+func (m *TrayMenu) InsertSubmenu(pos int, label string) (*TrayEntry, *TrayMenu) {
+	if m == nil {
+		return nil, nil
+	}
+	e, sub := m.m.AddSubmenu(pos, label)
+	var te *TrayEntry
+	var tm *TrayMenu
+	if e != nil {
+		te = &TrayEntry{e: e}
+	}
+	if sub != nil {
+		tm = &TrayMenu{m: sub}
+	}
+	return te, tm
+}
+func (m *TrayMenu) AddSeparator() *TrayEntry { return m.InsertSeparator(-1) }
+func (m *TrayMenu) InsertSeparator(pos int) *TrayEntry {
+	if m == nil {
+		return nil
+	}
+	if e := m.m.AddSeparator(pos); e != nil {
+		return &TrayEntry{e: e}
+	}
+	return nil
+}
+func (e *TrayEntry) SetLabel(label string) {
+	if e != nil {
+		e.e.SetLabel(label)
+	}
+}
+func (e *TrayEntry) SetChecked(checked bool) {
+	if e != nil {
+		e.e.SetChecked(checked)
+	}
+}
+func (e *TrayEntry) Checked() bool { return e != nil && e.e.Checked() }
+func (e *TrayEntry) SetEnabled(enabled bool) {
+	if e != nil {
+		e.e.SetEnabled(enabled)
+	}
+}
+func (e *TrayEntry) Remove() {
+	if e != nil {
+		e.e.Remove()
+	}
+}
 
 // Open creates the app window. Call it from the main goroutine.
 func Open(title string, width, height int) *Ui {

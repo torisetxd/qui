@@ -58,6 +58,8 @@ struct BoxShadow {
 #include "style.gen.inc"
 
 inline constexpr int32_t kOverlayZ = 1 << 20;
+
+enum class CloseAction : int { Quit = QUI_CLOSE_QUIT, Hide = QUI_CLOSE_HIDE, Minimize = QUI_CLOSE_MINIMIZE };
 inline constexpr float kIconSize = 20;
 inline constexpr float kModalMargin = 16;
 inline constexpr float kSheetSlide = 48, kSheetTop = 48;
@@ -287,9 +289,14 @@ class Ui {
   void set_smooth_scroll(bool on) { qui_set_smooth_scroll(app_, on ? 1 : 0); }
   void minimize_window() { qui_window_action(app_, 0); }
   void toggle_maximized() { qui_window_action(app_, 1); }
-  // Closes the window as its close button would, ending the frame loop.
+  // Closes the window as its close button would, ending the frame loop unless
+  // set_close_action changed the close behavior.
   void close_window() { qui_window_action(app_, 2); }
   bool window_maximized() const { return qui_window_maximized(app_) != 0; }
+  bool window_visible() const { return qui_window_visible(app_) != 0; }
+  bool window_minimized() const { return qui_window_minimized(app_) != 0; }
+  void set_close_action(CloseAction action) { qui_set_close_action(app_, static_cast<int>(action)); }
+  void quit() { qui_quit(app_); }
   // Shows or hides the window while the loop keeps running. A hidden window
   // costs nothing until the app wakes it again.
   void show_window(bool on = true) { qui_show_window(app_, on ? 1 : 0); }
@@ -1155,6 +1162,7 @@ class Ui {
     }
   };
 
+  friend class Tray;
   qui_app *app_;
   const uint8_t *res_ = nullptr;
   bool started_ = false;
@@ -1175,6 +1183,69 @@ class Ui {
   Stats stats_{};
   std::vector<uint8_t> buf_;
   std::vector<Scope> stack_;
+};
+
+class TrayMenu;
+
+class TrayEntry {
+ public:
+  TrayEntry() = default;
+  explicit TrayEntry(qui_tray_entry *p) : p_(p) {}
+  explicit operator bool() const { return p_ != nullptr; }
+  void set_label(const std::string &label) { qui_tray_entry_set_label(p_, label.c_str()); }
+  void set_checked(bool checked) { qui_tray_entry_set_checked(p_, checked ? 1 : 0); }
+  bool checked() const { return qui_tray_entry_checked(p_) != 0; }
+  void set_enabled(bool enabled) { qui_tray_entry_set_enabled(p_, enabled ? 1 : 0); }
+  void remove() {
+    qui_tray_remove_entry(p_);
+    p_ = nullptr;
+  }
+
+ private:
+  qui_tray_entry *p_ = nullptr;
+};
+
+class TrayMenu {
+ public:
+  TrayMenu() = default;
+  explicit TrayMenu(qui_tray_menu *p) : p_(p) {}
+  explicit operator bool() const { return p_ != nullptr; }
+  TrayEntry add_item(const std::string &label, uint32_t id, int pos = -1) { return TrayEntry(qui_tray_add_item(p_, pos, label.c_str(), id)); }
+  TrayEntry add_check(const std::string &label, bool checked, uint32_t id, int pos = -1) {
+    return TrayEntry(qui_tray_add_check(p_, pos, label.c_str(), checked ? 1 : 0, id));
+  }
+  TrayMenu add_submenu(const std::string &label, int pos = -1) {
+    qui_tray_menu *sub = nullptr;
+    qui_tray_add_submenu(p_, pos, label.c_str(), &sub);
+    return TrayMenu(sub);
+  }
+  TrayEntry add_separator(int pos = -1) { return TrayEntry(qui_tray_add_separator(p_, pos)); }
+
+ private:
+  qui_tray_menu *p_ = nullptr;
+};
+
+// System tray icon and menu. Clicks wake the loop and are read with next_click.
+class Tray {
+ public:
+  Tray() = default;
+  explicit Tray(Ui &ui, const std::string &tooltip = {}) : p_(qui_tray_create(ui.app_, tooltip.c_str())) {}
+
+  bool valid() const { return qui_tray_valid(p_.get()) != 0; }
+  void set_icon(int w, int h, const uint8_t *rgba) { qui_tray_set_icon(p_.get(), w, h, rgba); }
+  void set_tooltip(const std::string &tooltip) { qui_tray_set_tooltip(p_.get(), tooltip.c_str()); }
+  TrayMenu menu() { return TrayMenu(qui_tray_menu_root(p_.get())); }
+  std::optional<uint32_t> next_click() {
+    uint32_t id = 0;
+    return qui_tray_next_click(p_.get(), &id) ? std::optional(id) : std::nullopt;
+  }
+  void reset() { p_.reset(); }
+
+ private:
+  struct Destroy {
+    void operator()(qui_tray *t) const { qui_tray_destroy(t); }
+  };
+  std::unique_ptr<qui_tray, Destroy> p_;
 };
 
 }  // namespace qui

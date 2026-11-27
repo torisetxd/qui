@@ -111,6 +111,8 @@ struct TextStyle {
 };
 
 inline constexpr int32_t kOverlayZ = 1 << 20;
+
+enum class CloseAction : int { Quit = QUI_CLOSE_QUIT, Hide = QUI_CLOSE_HIDE, Minimize = QUI_CLOSE_MINIMIZE };
 inline constexpr float kIconSize = 20;
 inline constexpr float kModalMargin = 16;
 inline constexpr float kSheetSlide = 48, kSheetTop = 48;
@@ -296,9 +298,14 @@ class Ui {
   void set_smooth_scroll(bool on);
   void minimize_window();
   void toggle_maximized();
-  // Closes the window as its close button would, ending the frame loop.
+  // Closes the window as its close button would, ending the frame loop unless
+  // set_close_action changed the close behavior.
   void close_window();
   bool window_maximized() const;
+  bool window_visible() const;
+  bool window_minimized() const;
+  void set_close_action(CloseAction action);
+  void quit();
   // Shows or hides the window while the loop keeps running. A hidden window
   // costs nothing until the app wakes it again.
   void show_window(bool on = true);
@@ -454,6 +461,45 @@ class Ui {
   // content opens it; a swipe, a tap on the scrim or Escape closes it.
   template <class C, class P>
   Response drawer(Drawer &d, const DrawerOptions &options, C &&content, P &&panel);
+
+};
+
+class TrayMenu;
+
+class TrayEntry {
+  TrayEntry() = default;
+  explicit TrayEntry(qui_tray_entry *p);
+  explicit operator bool() const;
+  void set_label(const std::string &label);
+  void set_checked(bool checked);
+  bool checked() const;
+  void set_enabled(bool enabled);
+  void remove();
+
+};
+
+class TrayMenu {
+  TrayMenu() = default;
+  explicit TrayMenu(qui_tray_menu *p);
+  explicit operator bool() const;
+  TrayEntry add_item(const std::string &label, uint32_t id, int pos = -1);
+  TrayEntry add_check(const std::string &label, bool checked, uint32_t id, int pos = -1);
+  TrayMenu add_submenu(const std::string &label, int pos = -1);
+  TrayEntry add_separator(int pos = -1);
+
+};
+
+// System tray icon and menu. Clicks wake the loop and are read with next_click.
+class Tray {
+  Tray() = default;
+  explicit Tray(Ui &ui, const std::string &tooltip = {});
+
+  bool valid() const;
+  void set_icon(int w, int h, const uint8_t *rgba);
+  void set_tooltip(const std::string &tooltip);
+  TrayMenu menu();
+  std::optional<uint32_t> next_click();
+  void reset();
 
 };
 ```

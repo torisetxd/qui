@@ -8,6 +8,7 @@
 #endif
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_tray.h>
 #if defined(__GLIBC__)
 #include <malloc.h>
 #endif
@@ -406,12 +407,34 @@ std::vector<std::string> split_steps(std::string_view all) {
 
 }  // namespace
 
+struct qui_tray_entry {
+  SDL_TrayEntry *sdl = nullptr;
+  qui_tray *tray = nullptr;
+  uint32_t id = 0;
+};
+
+struct qui_tray_menu {
+  SDL_TrayMenu *sdl = nullptr;
+  qui_tray *tray = nullptr;
+};
+
+struct qui_tray {
+  qui_app *app = nullptr;
+  SDL_Tray *sdl = nullptr;
+  std::unique_ptr<qui_tray_menu> root_menu;
+  std::vector<std::unique_ptr<qui_tray_menu>> menus;
+  std::vector<std::unique_ptr<qui_tray_entry>> entries;
+  std::deque<uint32_t> clicks;
+};
+
 struct qui_app {
   std::mutex picked_lock;
   std::deque<std::string> picked;
   std::string picked_out;
   std::filesystem::path paste_dir;
   int pastes = 0;
+  int close_action = QUI_CLOSE_QUIT;
+  std::vector<qui_tray *> trays;
   Engine engine;
   std::unique_ptr<Backend> backend;
   CpuBackend *cpu = nullptr;
@@ -728,6 +751,16 @@ struct qui_app {
     return SDL_HITTEST_NORMAL;
   }
 
+  void request_close() {
+    if (close_action == QUI_CLOSE_HIDE) {
+      if (window && !headless) SDL_HideWindow(window);
+    } else if (close_action == QUI_CLOSE_MINIMIZE) {
+      if (window && !headless) SDL_MinimizeWindow(window);
+    } else {
+      quit = true;
+    }
+  }
+
   void window_action(int action) {
     if (!window) return;
     if (action == 0) SDL_MinimizeWindow(window);
@@ -735,7 +768,7 @@ struct qui_app {
       if (SDL_GetWindowFlags(window) & SDL_WINDOW_MAXIMIZED) SDL_RestoreWindow(window);
       else SDL_MaximizeWindow(window);
     }
-    if (action == 2) quit = true;
+    if (action == 2) request_close();
   }
 
   static bool inside(const HitEntry &hit, float x, float y) {
@@ -1480,8 +1513,10 @@ struct qui_app {
     };
     switch (e.type) {
       case SDL_EVENT_QUIT:
-      case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         quit = true;
+        break;
+      case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+        request_close();
         break;
       case SDL_EVENT_WINDOW_HIT_TEST: {
         // Where the system reports presses on a drag area (X11), two of them
@@ -2320,6 +2355,14 @@ struct qui_app {
       std::error_code error;
       std::filesystem::remove_all(paste_dir, error);
     }
+    for (qui_tray *t : trays) {
+      t->app = nullptr;
+      if (t->sdl) {
+        SDL_DestroyTray(t->sdl);
+        t->sdl = nullptr;
+      }
+    }
+    trays.clear();
     if (cursor_text) SDL_DestroyCursor(cursor_text);
     if (cursor_pointer) SDL_DestroyCursor(cursor_pointer);
     backend.reset();
@@ -2342,8 +2385,26 @@ void qui_set_start_hidden(int on) { g_start_hidden = on != 0; }
 
 void qui_show_window(qui_app *app, int on) {
   if (!app || !app->window || app->headless) return;
-  if (on) SDL_ShowWindow(app->window);
-  else SDL_HideWindow(app->window);
+  if (on) {
+    if (SDL_GetWindowFlags(app->window) & SDL_WINDOW_MINIMIZED) SDL_RestoreWindow(app->window);
+    SDL_ShowWindow(app->window);
+    SDL_RaiseWindow(app->window);
+    app->dirty = true;
+    app->force_full = true;
+    qui_wake(app);
+  } else {
+    SDL_HideWindow(app->window);
+  }
+}
+
+void qui_set_close_action(qui_app *app, int action) {
+  if (app) app->close_action = action;
+}
+
+void qui_quit(qui_app *app) {
+  if (!app) return;
+  app->quit = true;
+  qui_wake(app);
 }
 
 void qui_window_action(qui_app *app, int action) {
@@ -2351,6 +2412,10 @@ void qui_window_action(qui_app *app, int action) {
 }
 
 int qui_window_maximized(qui_app *app) { return app && app->window && (SDL_GetWindowFlags(app->window) & SDL_WINDOW_MAXIMIZED) ? 1 : 0; }
+
+int qui_window_visible(qui_app *app) { return app && app->window && !(SDL_GetWindowFlags(app->window) & SDL_WINDOW_HIDDEN) ? 1 : 0; }
+
+int qui_window_minimized(qui_app *app) { return app && app->window && (SDL_GetWindowFlags(app->window) & SDL_WINDOW_MINIMIZED) ? 1 : 0; }
 
 void qui_consume_back(qui_app *app) { app->back_consumed = true; }
 
@@ -2449,6 +2514,133 @@ void qui_stage_image(qui_app *app, uint64_t token, uint32_t w, uint32_t h, const
   std::shared_ptr<const void> owner(ctx, release);
   if (!app || !rgba || len < static_cast<size_t>(w) * h * 4) return;
   app->engine.stage_image(token, w, h, {rgba, static_cast<size_t>(w) * h * 4}, std::move(owner));
+}
+
+namespace {
+void SDLCALL on_tray_entry(void *userdata, SDL_TrayEntry *) {
+  auto *entry = static_cast<qui_tray_entry *>(userdata);
+  if (!entry || !entry->tray) return;
+  entry->tray->clicks.push_back(entry->id);
+  if (entry->tray->app) {
+    entry->tray->app->dirty = true;
+    qui_wake(entry->tray->app);
+  }
+}
+
+qui_tray_entry *insert_tray_entry(qui_tray_menu *menu, int pos, const char *label, SDL_TrayEntryFlags flags, uint32_t id, bool with_cb) {
+  if (!menu || !menu->sdl || !menu->tray) return nullptr;
+  SDL_TrayEntry *sdl_entry = SDL_InsertTrayEntryAt(menu->sdl, pos, label, flags);
+  if (!sdl_entry) return nullptr;
+  auto entry = std::make_unique<qui_tray_entry>(qui_tray_entry{sdl_entry, menu->tray, id});
+  qui_tray_entry *raw = entry.get();
+  if (with_cb) SDL_SetTrayEntryCallback(sdl_entry, on_tray_entry, raw);
+  menu->tray->entries.push_back(std::move(entry));
+  return raw;
+}
+}  // namespace
+
+qui_tray *qui_tray_create(qui_app *app, const char *tooltip) {
+  auto *tray = new qui_tray();
+  tray->app = app;
+  if (app && !app->headless && app->sdl_ready) {
+    tray->sdl = SDL_CreateTray(nullptr, tooltip && *tooltip ? tooltip : nullptr);
+    app->trays.push_back(tray);
+  }
+  return tray;
+}
+
+void qui_tray_destroy(qui_tray *tray) {
+  if (!tray) return;
+  if (tray->app) {
+    auto &ts = tray->app->trays;
+    ts.erase(std::remove(ts.begin(), ts.end(), tray), ts.end());
+  }
+  if (tray->sdl) SDL_DestroyTray(tray->sdl);
+  delete tray;
+}
+
+int qui_tray_valid(qui_tray *tray) { return tray && tray->sdl ? 1 : 0; }
+
+void qui_tray_set_icon(qui_tray *tray, int w, int h, const uint8_t *rgba) {
+  if (!tray || !tray->sdl) return;
+  if (!rgba || w <= 0 || h <= 0) {
+    SDL_SetTrayIcon(tray->sdl, nullptr);
+    return;
+  }
+  SDL_Surface *surface = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, const_cast<uint8_t *>(rgba), w * 4);
+  if (!surface) return;
+  SDL_SetTrayIcon(tray->sdl, surface);
+  SDL_DestroySurface(surface);
+}
+
+void qui_tray_set_tooltip(qui_tray *tray, const char *tooltip) {
+  if (tray && tray->sdl) SDL_SetTrayTooltip(tray->sdl, tooltip && *tooltip ? tooltip : nullptr);
+}
+
+qui_tray_menu *qui_tray_menu_root(qui_tray *tray) {
+  if (!tray || !tray->sdl) return nullptr;
+  if (!tray->root_menu) {
+    SDL_TrayMenu *sdl = SDL_GetTrayMenu(tray->sdl);
+    if (!sdl) sdl = SDL_CreateTrayMenu(tray->sdl);
+    if (!sdl) return nullptr;
+    tray->root_menu = std::make_unique<qui_tray_menu>(qui_tray_menu{sdl, tray});
+  }
+  return tray->root_menu.get();
+}
+
+qui_tray_entry *qui_tray_add_item(qui_tray_menu *menu, int pos, const char *label, uint32_t id) {
+  return insert_tray_entry(menu, pos, label ? label : "", SDL_TRAYENTRY_BUTTON, id, true);
+}
+
+qui_tray_entry *qui_tray_add_check(qui_tray_menu *menu, int pos, const char *label, int checked, uint32_t id) {
+  SDL_TrayEntryFlags flags = SDL_TRAYENTRY_CHECKBOX | (checked ? SDL_TRAYENTRY_CHECKED : 0);
+  return insert_tray_entry(menu, pos, label ? label : "", flags, id, true);
+}
+
+qui_tray_entry *qui_tray_add_submenu(qui_tray_menu *menu, int pos, const char *label, qui_tray_menu **out_submenu) {
+  if (out_submenu) *out_submenu = nullptr;
+  qui_tray_entry *entry = insert_tray_entry(menu, pos, label ? label : "", SDL_TRAYENTRY_SUBMENU, 0, false);
+  if (!entry) return nullptr;
+  SDL_TrayMenu *sdl_sub = SDL_CreateTraySubmenu(entry->sdl);
+  if (!sdl_sub) return entry;
+  auto sub = std::make_unique<qui_tray_menu>(qui_tray_menu{sdl_sub, menu->tray});
+  if (out_submenu) *out_submenu = sub.get();
+  menu->tray->menus.push_back(std::move(sub));
+  return entry;
+}
+
+qui_tray_entry *qui_tray_add_separator(qui_tray_menu *menu, int pos) {
+  return insert_tray_entry(menu, pos, nullptr, SDL_TRAYENTRY_BUTTON, 0, false);
+}
+
+void qui_tray_remove_entry(qui_tray_entry *entry) {
+  if (!entry || !entry->tray) return;
+  if (entry->sdl) SDL_RemoveTrayEntry(entry->sdl);
+  auto &es = entry->tray->entries;
+  es.erase(std::remove_if(es.begin(), es.end(), [entry](const auto &p) { return p.get() == entry; }), es.end());
+}
+
+void qui_tray_entry_set_label(qui_tray_entry *entry, const char *label) {
+  if (entry && entry->sdl && label) SDL_SetTrayEntryLabel(entry->sdl, label);
+}
+
+void qui_tray_entry_set_checked(qui_tray_entry *entry, int checked) {
+  if (entry && entry->sdl) SDL_SetTrayEntryChecked(entry->sdl, checked != 0);
+}
+
+int qui_tray_entry_checked(qui_tray_entry *entry) {
+  return entry && entry->sdl && SDL_GetTrayEntryChecked(entry->sdl) ? 1 : 0;
+}
+
+void qui_tray_entry_set_enabled(qui_tray_entry *entry, int enabled) {
+  if (entry && entry->sdl) SDL_SetTrayEntryEnabled(entry->sdl, enabled != 0);
+}
+
+int qui_tray_next_click(qui_tray *tray, uint32_t *out_id) {
+  if (!tray || tray->clicks.empty()) return 0;
+  if (out_id) *out_id = tray->clicks.front();
+  tray->clicks.pop_front();
+  return 1;
 }
 
 }  // extern "C"

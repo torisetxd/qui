@@ -85,6 +85,149 @@ func (a *App) FilesHovering() bool { return C.qui_files_hovering(a.app) != 0 }
 func (a *App) WindowAction(action int) { C.qui_window_action(a.app, C.int(action)) }
 
 func (a *App) WindowMaximized() bool { return C.qui_window_maximized(a.app) != 0 }
+func (a *App) WindowVisible() bool   { return C.qui_window_visible(a.app) != 0 }
+func (a *App) WindowMinimized() bool { return C.qui_window_minimized(a.app) != 0 }
+func (a *App) SetCloseAction(action int) {
+	C.qui_set_close_action(a.app, C.int(action))
+}
+func (a *App) Quit() { C.qui_quit(a.app) }
+
+type Tray struct{ p *C.qui_tray }
+type TrayMenu struct{ p *C.qui_tray_menu }
+type TrayEntry struct{ p *C.qui_tray_entry }
+
+func (a *App) NewTray(tooltip string) *Tray {
+	ctip := C.CString(tooltip)
+	defer C.free(unsafe.Pointer(ctip))
+	return &Tray{p: C.qui_tray_create(a.app, ctip)}
+}
+
+func (t *Tray) Close() {
+	if t.p != nil {
+		C.qui_tray_destroy(t.p)
+		t.p = nil
+	}
+}
+
+func (t *Tray) Valid() bool { return t != nil && C.qui_tray_valid(t.p) != 0 }
+
+func (t *Tray) SetIcon(w, h int, rgba []byte) {
+	var ptr *C.uint8_t
+	if len(rgba) > 0 {
+		ptr = (*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(rgba)))
+	}
+	C.qui_tray_set_icon(t.p, C.int(w), C.int(h), ptr)
+}
+
+func (t *Tray) SetTooltip(tooltip string) {
+	ctip := C.CString(tooltip)
+	defer C.free(unsafe.Pointer(ctip))
+	C.qui_tray_set_tooltip(t.p, ctip)
+}
+
+func (t *Tray) Menu() *TrayMenu {
+	p := C.qui_tray_menu_root(t.p)
+	if p == nil {
+		return nil
+	}
+	return &TrayMenu{p: p}
+}
+
+func (t *Tray) NextClick() (uint32, bool) {
+	var id C.uint32_t
+	if C.qui_tray_next_click(t.p, &id) != 0 {
+		return uint32(id), true
+	}
+	return 0, false
+}
+
+func (m *TrayMenu) AddItem(pos int, label string, id uint32) *TrayEntry {
+	if m == nil {
+		return nil
+	}
+	clabel := C.CString(label)
+	defer C.free(unsafe.Pointer(clabel))
+	p := C.qui_tray_add_item(m.p, C.int(pos), clabel, C.uint32_t(id))
+	if p == nil {
+		return nil
+	}
+	return &TrayEntry{p: p}
+}
+
+func (m *TrayMenu) AddCheck(pos int, label string, checked bool, id uint32) *TrayEntry {
+	if m == nil {
+		return nil
+	}
+	clabel := C.CString(label)
+	defer C.free(unsafe.Pointer(clabel))
+	p := C.qui_tray_add_check(m.p, C.int(pos), clabel, cb(checked), C.uint32_t(id))
+	if p == nil {
+		return nil
+	}
+	return &TrayEntry{p: p}
+}
+
+func (m *TrayMenu) AddSubmenu(pos int, label string) (*TrayEntry, *TrayMenu) {
+	if m == nil {
+		return nil, nil
+	}
+	clabel := C.CString(label)
+	defer C.free(unsafe.Pointer(clabel))
+	var sub *C.qui_tray_menu
+	p := C.qui_tray_add_submenu(m.p, C.int(pos), clabel, &sub)
+	var entry *TrayEntry
+	var menu *TrayMenu
+	if p != nil {
+		entry = &TrayEntry{p: p}
+	}
+	if sub != nil {
+		menu = &TrayMenu{p: sub}
+	}
+	return entry, menu
+}
+
+func (m *TrayMenu) AddSeparator(pos int) *TrayEntry {
+	if m == nil {
+		return nil
+	}
+	p := C.qui_tray_add_separator(m.p, C.int(pos))
+	if p == nil {
+		return nil
+	}
+	return &TrayEntry{p: p}
+}
+
+func (e *TrayEntry) SetLabel(label string) {
+	if e == nil {
+		return
+	}
+	clabel := C.CString(label)
+	defer C.free(unsafe.Pointer(clabel))
+	C.qui_tray_entry_set_label(e.p, clabel)
+}
+
+func (e *TrayEntry) SetChecked(checked bool) {
+	if e != nil {
+		C.qui_tray_entry_set_checked(e.p, cb(checked))
+	}
+}
+
+func (e *TrayEntry) Checked() bool {
+	return e != nil && C.qui_tray_entry_checked(e.p) != 0
+}
+
+func (e *TrayEntry) SetEnabled(enabled bool) {
+	if e != nil {
+		C.qui_tray_entry_set_enabled(e.p, cb(enabled))
+	}
+}
+
+func (e *TrayEntry) Remove() {
+	if e != nil && e.p != nil {
+		C.qui_tray_remove_entry(e.p)
+		e.p = nil
+	}
+}
 
 func (a *App) SelectedText() string { return C.GoString(C.qui_selected_text(a.app)) }
 

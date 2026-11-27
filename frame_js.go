@@ -30,6 +30,48 @@ func (u *Ui) MinimizeWindow()       {}
 func (u *Ui) ToggleMaximized()      {}
 func (u *Ui) CloseWindow()          {}
 func (u *Ui) WindowMaximized() bool { return false }
+func (u *Ui) WindowVisible() bool   { return true }
+func (u *Ui) WindowMinimized() bool { return false }
+
+type CloseAction int
+
+const (
+	CloseQuit CloseAction = iota
+	CloseHide
+	CloseMinimize
+)
+
+func (u *Ui) SetCloseAction(CloseAction) {}
+func (u *Ui) Quit()                      {}
+
+type Tray struct{}
+type TrayMenu struct{}
+type TrayEntry struct{}
+
+func (u *Ui) NewTray(string) *Tray                        { return &Tray{} }
+func (t *Tray) Close()                                    {}
+func (t *Tray) Valid() bool                               { return false }
+func (t *Tray) SetIcon(int, int, []byte)                  {}
+func (t *Tray) SetTooltip(string)                         {}
+func (t *Tray) Menu() *TrayMenu                           { return nil }
+func (t *Tray) NextClick() (uint32, bool)                 { return 0, false }
+func (m *TrayMenu) AddItem(string, uint32) *TrayEntry     { return nil }
+func (m *TrayMenu) InsertItem(int, string, uint32) *TrayEntry { return nil }
+func (m *TrayMenu) AddCheck(string, bool, uint32) *TrayEntry  { return nil }
+func (m *TrayMenu) InsertCheck(int, string, bool, uint32) *TrayEntry {
+	return nil
+}
+func (m *TrayMenu) AddSubmenu(string) (*TrayEntry, *TrayMenu)      { return nil, nil }
+func (m *TrayMenu) InsertSubmenu(int, string) (*TrayEntry, *TrayMenu) {
+	return nil, nil
+}
+func (m *TrayMenu) AddSeparator() *TrayEntry               { return nil }
+func (m *TrayMenu) InsertSeparator(int) *TrayEntry         { return nil }
+func (e *TrayEntry) SetLabel(string)                       {}
+func (e *TrayEntry) SetChecked(bool)                       {}
+func (e *TrayEntry) Checked() bool                         { return false }
+func (e *TrayEntry) SetEnabled(bool)                       {}
+func (e *TrayEntry) Remove()                               {}
 
 // Open connects to the DOM patcher started by web/qui.js.
 func Open(title string, width, height int) *Ui {

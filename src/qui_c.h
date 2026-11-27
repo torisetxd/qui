@@ -37,6 +37,22 @@ void qui_set_start_hidden(int on);
 /* Shows or hides the window while the loop keeps running. */
 void qui_show_window(qui_app *app, int on);
 
+enum {
+  QUI_CLOSE_QUIT = 0,
+  QUI_CLOSE_HIDE = 1,
+  QUI_CLOSE_MINIMIZE = 2,
+};
+
+/* Controls what closing the window (close button or qui_window_action(2))
+ * does: QUI_CLOSE_QUIT ends the loop (default), QUI_CLOSE_HIDE hides the
+ * window while keeping the loop running, and QUI_CLOSE_MINIMIZE minimizes it
+ * to the taskbar. */
+void qui_set_close_action(qui_app *app, int action);
+
+/* Requests the frame loop to exit, even when close action is not
+ * QUI_CLOSE_QUIT. */
+void qui_quit(qui_app *app);
+
 qui_app *qui_open(const char *title, int width, int height);
 void qui_close(qui_app *app);
 
@@ -71,6 +87,12 @@ void qui_window_action(qui_app *app, int action);
 /* Whether the window is maximized. */
 int qui_window_maximized(qui_app *app);
 
+/* Whether the window is currently visible (not hidden). */
+int qui_window_visible(qui_app *app);
+
+/* Whether the window is currently minimized. */
+int qui_window_minimized(qui_app *app);
+
 /* Eases mouse wheel steps toward their target instead of jumping. Off by
  * default. */
 void qui_set_smooth_scroll(qui_app *app, int on);
@@ -90,6 +112,31 @@ void qui_frame_end(qui_app *app, const uint8_t *wire, size_t len);
  * `token`, without copying them. `release(ctx)` runs once the engine and its
  * worker thread are done with the bytes, from whichever thread lets go last. */
 void qui_stage_image(qui_app *app, uint64_t token, uint32_t w, uint32_t h, const uint8_t *rgba, size_t len, void *ctx, void (*release)(void *));
+
+typedef struct qui_tray qui_tray;
+typedef struct qui_tray_menu qui_tray_menu;
+typedef struct qui_tray_entry qui_tray_entry;
+
+/* Creates a system tray icon (no-op in headless/unsupported environments). */
+qui_tray *qui_tray_create(qui_app *app, const char *tooltip);
+void qui_tray_destroy(qui_tray *tray);
+int qui_tray_valid(qui_tray *tray);
+void qui_tray_set_icon(qui_tray *tray, int w, int h, const uint8_t *rgba);
+void qui_tray_set_tooltip(qui_tray *tray, const char *tooltip);
+
+qui_tray_menu *qui_tray_menu_root(qui_tray *tray);
+qui_tray_entry *qui_tray_add_item(qui_tray_menu *menu, int pos, const char *label, uint32_t id);
+qui_tray_entry *qui_tray_add_check(qui_tray_menu *menu, int pos, const char *label, int checked, uint32_t id);
+qui_tray_entry *qui_tray_add_submenu(qui_tray_menu *menu, int pos, const char *label, qui_tray_menu **out_submenu);
+qui_tray_entry *qui_tray_add_separator(qui_tray_menu *menu, int pos);
+void qui_tray_remove_entry(qui_tray_entry *entry);
+void qui_tray_entry_set_label(qui_tray_entry *entry, const char *label);
+void qui_tray_entry_set_checked(qui_tray_entry *entry, int checked);
+int qui_tray_entry_checked(qui_tray_entry *entry);
+void qui_tray_entry_set_enabled(qui_tray_entry *entry, int enabled);
+
+/* Pops the next clicked entry id, returning 1 if an event was available. */
+int qui_tray_next_click(qui_tray *tray, uint32_t *out_id);
 
 #ifdef __cplusplus
 }
