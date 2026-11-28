@@ -184,6 +184,30 @@ int headless_frames() {
   return value.empty() ? 4 : std::atoi(value.c_str());
 }
 
+#if defined(_WIN32)
+extern "C" __declspec(dllimport) wchar_t *__stdcall GetCommandLineW();
+#endif
+
+// Frame timing logs are off unless the app runs with --debug or QUI_DEBUG=1.
+bool debug_logging() {
+  static const bool on = [] {
+    if (const std::string v = env("QUI_DEBUG"); !v.empty() && v != "0") return true;
+#if defined(_WIN32)
+    const std::wstring_view line = GetCommandLineW();
+    for (size_t at = line.find(L"--debug"); at != std::wstring_view::npos; at = line.find(L"--debug", at + 1)) {
+      const size_t end = at + 7;
+      if ((at == 0 || line[at - 1] == L' ' || line[at - 1] == L'"') && (end == line.size() || line[end] == L' ' || line[end] == L'"')) return true;
+    }
+#else
+    std::ifstream cmdline("/proc/self/cmdline", std::ios::binary);
+    for (std::string arg; std::getline(cmdline, arg, '\0');)
+      if (arg == "--debug") return true;
+#endif
+    return false;
+  }();
+  return on;
+}
+
 void *gl_proc(const char *name) { return reinterpret_cast<void *>(SDL_GL_GetProcAddress(name)); }
 
 #if defined(__ANDROID__)
@@ -2301,7 +2325,7 @@ struct qui_app {
       win.upload_kib += upload_bytes / 1024;
       win.instances += engine.previous.instances.size();
       if (t_now - win.since >= 2.0) {
-        if (!headless && win.frames >= 10) {
+        if (!headless && win.frames >= 10 && debug_logging()) {
           const double n = static_cast<double>(win.frames);
           std::fprintf(stderr, "qui: %zu frames in %.1f s (%.0f fps), avg ms: decode %.1f layout %.1f paint %.1f upload %.1f draw %.1f present %.1f; per frame %.1f uploads, %.0f KiB, %.0f instances; image scaling +%llu async +%llu inline\n", win.frames, t_now - win.since, n / (t_now - win.since), win.decode * 1000 / n, win.layout * 1000 / n, win.paint * 1000 / n, win.upload * 1000 / n, win.draw * 1000 / n, win.present * 1000 / n, static_cast<double>(win.uploads) / n, static_cast<double>(win.upload_kib) / n, static_cast<double>(win.instances) / n, static_cast<unsigned long long>(engine.stat_async_resamples - win.async0), static_cast<unsigned long long>(engine.stat_sync_resamples - win.sync0));
         }
@@ -2311,7 +2335,7 @@ struct qui_app {
         win.sync0 = engine.stat_sync_resamples;
       }
     }
-    if (const double t_end = now(); (!headless || slow_s < 0.0083) && t_end - began > slow_s)
+    if (const double t_end = now(); (debug_logging() || std::getenv("QUI_SLOW_MS")) && (!headless || slow_s < 0.0083) && t_end - began > slow_s)
       std::fprintf(stderr, "qui: slow frame %.0f ms: decode %.0f layout %.0f paint %.0f upload %.0f (%zu, %zu KiB) draw %.0f present %.0f; glyph raster %.0f ms, image scale %.0f ms; wire %zu KiB, %zu instances\n", (t_end - began) * 1000, (t_decode - began) * 1000, (t_layout - t_decode) * 1000, (t_paint - t_layout) * 1000, (t_upload - t_paint) * 1000, upload_count, upload_bytes / 1024, (t_draw - t_upload) * 1000, (t_end - t_draw) * 1000, raster_ms, engine.sync_resample_ms, len / 1024, engine.previous.instances.size());
 #if defined(__ANDROID__)
     if (const uint32_t c = engine.previous.clear; !headless) {

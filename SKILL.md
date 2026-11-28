@@ -93,6 +93,7 @@ The loop: print the outline, take selectors from it, drive, then assert with `wa
 | `QUI_FRAMES=n` | Minimum frames before exiting; raise it if an animation has not settled |
 | `QUI_WAIT_MS=10000` | How long a step waits for its selector |
 | `QUI_WIRE=a.bin` | Dump the frame's wire bytes |
+| `QUI_DEBUG=1` or `--debug` | Print fps and slow-frame timings to stderr; off by default |
 
 A point is `x,y` in logical pixels or a selector, which aims at the center of the node's visible part: `@key` (the `Key` or id string the node was opened with), `"exact text"` or `~text` (any case), matched against text, label or placeholder. Parts after a space must be inside the one before (`@sidebar "Settings"`), and `[n]` keeps the nth match from 0. A selector step waits until its node is on screen and not covered by another hit box; a coordinate step does not wait, so start a coordinate-only script with `wait:20`.
 
